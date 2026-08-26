@@ -1,0 +1,36 @@
+# CI —— M0 起效：Python 数据科学层（lint + 测试）
+# 后续里程碑扩展：M3 加 Go（server/），M4 加前端（frontend/）
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  python:
+    name: Python (ruff + pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "python/uv.lock"
+
+      # 严格使用 uv.lock（--frozen：锁文件与 pyproject 不一致时直接失败）
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint (ruff)
+        run: uv run ruff check src tests
+
+      - name: Test (pytest)
+        run: uv run pytest -q
+
+      - name: CLI smoke
+        run: uv run omo-cli --version
