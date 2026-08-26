@@ -1,0 +1,37 @@
+[project]
+name = "omo"
+version = "0.1.0"
+description = "OMO 纳米多层薄膜轻量化仿真与设计软件 —— 数据科学层（物理仿真引擎）"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.5.2",
+    "scipy>=1.18.1",
+]
+
+[project.scripts]
+omo-cli = "omo.cli.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.4",
+]
+
+[tool.uv]
+python-preference = "managed"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]

@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# uv 工作区本地缓存与托管 Python（本环境沙箱用）
+.uv-cache/
+.uv-python/
