@@ -44,7 +44,7 @@ Python 侧同时提供可独立运行的 CLI，便于脚本化批量仿真与对
 
 所有物理模型**必须标注文献来源**，并配单元测试与文献数据基准测试。
 
-### 3.1 光学性能（Optics）—— ✅ M1 已实现（见 python/src/omo/optics/ 与 docs/physics/tmm.md）
+### 3.1 光学性能（Optics）—— ✅ M1 已实现（见 engine/src/omo/optics/ 与 docs/physics/tmm.md）
 - **传输矩阵法（TMM）**：基于 Fresnel 系数计算多层膜系的透过率 T、反射率 R、吸收率 A（含角度、偏振）。
 - **金属介电函数**：Drude 模型 ε(ω) = ε∞ − ωp² / (ω² + iγω)，必要时扩展 Drude–Lorentz；
   常数（如 Ag 的 ωp、γ）取自公开文献并集中管理。
@@ -95,7 +95,7 @@ OMOPredict/
 │   ├── physics/               # 物理模型文档（TMM、Drude、屏蔽理论）
 │   ├── benchmarks/            # 文献对标数据集与来源（含 DOI）
 │   └── api/                   # API 设计与数据契约
-├── python/                    # ── 数据科学层 ──（uv 项目，脚手架已完成）
+├── engine/                    # ── 数据科学层 ──（uv 项目，脚手架已完成）
 │   ├── pyproject.toml         # 项目元数据 + pytest/ruff 配置（依赖用 uv add 管理）
 │   ├── README.md
 │   ├── .python-version        # 锁定 Python 3.12
@@ -176,7 +176,7 @@ OMOPredict/
 10. **注释与包文档（强制）**：
    - 所有公开函数/类必须有完整 docstring：用途、参数、返回值、异常；关键物理公式标注**文献来源与单位**。
    - 每个 Python 子包目录下必须有 `README.md`：写明该包**职责**、核心模块、**调用示例**（可复现的最小代码片段）。
-   - 非显然的推导与"魔法数字"必须注释说明出处；禁止出现无来源注释的常量（物理常数约定见 `python/src/omo/constants.py`）。
+   - 非显然的推导与"魔法数字"必须注释说明出处；禁止出现无来源注释的常量（物理常数约定见 `engine/src/omo/constants.py`）。
    - 新增/修改子包时同步维护其 `README.md`，保持文档与代码一致。
 
 ---
@@ -184,10 +184,10 @@ OMOPredict/
 ## 7. 常用命令（规划中，随脚手架落地）
 
 ```bash
-# Python 数据科学层（脚手架已就绪）
-cd python && uv run pytest                # 运行测试（含文献基准）
-cd python && uv run ruff check src tests  # 代码检查
-cd python && uv run omo-cli --info        # CLI 入口
+# Python 数据科学层（脚手架已就绪，目录 engine/）
+cd engine && uv run pytest                # 运行测试（含文献基准）
+cd engine && uv run ruff check src tests  # 代码检查
+cd engine && uv run omo-cli --info        # CLI 入口
 
 # Go 中间层（M3 后可用）
 cd server && go build ./...

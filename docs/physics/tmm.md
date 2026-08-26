@@ -1,6 +1,6 @@
 # TMM 光学模型（omo.optics）
 
-> 状态：M1 已实现（`python/src/omo/optics/transfer_matrix.py`、`drude.py`）。
+> 状态：M1 已实现（`engine/src/omo/optics/transfer_matrix.py`、`drude.py`）。
 > 本文档与代码同步维护（AGENTS.md 守则第 10 条）。
 
 ## 1. 模型概述
@@ -73,7 +73,7 @@ M2 对标阶段将用实测数据校准。
 - 半波膜 / 极薄层：回归裸界面结果
 - 吸收层：0 ≤ T, R, A ≤ 1 且 A > 0
 - s/p 垂直入射一致、斜入射分裂、非偏振为平均
-- 全部见 `python/tests/test_transfer_matrix.py`、`test_drude.py`
+- 全部见 `engine/tests/test_transfer_matrix.py`、`test_drude.py`
 
 ## 6. 参考文献
 
