@@ -50,7 +50,7 @@ Python 侧同时提供可独立运行的 CLI，便于脚本化批量仿真与对
   常数（如 Ag 的 ωp、γ）取自公开文献并集中管理。
 - 输出：光谱曲线（300–2500 nm）、可见光平均透过率、色度坐标等。
 
-### 3.2 电学性能（Electrical）
+### 3.2 电学性能（Electrical）—— ✅ M1 已实现（见 engine/src/omo/electrical/ 与 docs/physics/electrical.md）
 - **方阻 Rs（Ω/sq）**：多层膜并联等效模型；金属层主导，超薄金属需考虑**电阻率尺寸效应**（Fuchs–Sondheimer 等）。
 - 输出：方阻、等效电阻率、与膜厚的关系曲线。
 
@@ -129,7 +129,8 @@ OMOPredict/
 ```
 
 > 当前仓库处于 **M1 阶段（进行中）**：脚手架与 CI 已完成（Python 层 + GitHub Actions）；
-> omo.optics 的 TMM + Drude 光学模块已实现并通过解析解验证；electrical / emi 待实现。
+> omo.optics（TMM + Drude）与 omo.electrical（并联方阻 + Fuchs–Sondheimer）已实现并通过验证；
+> emi（屏蔽效能）待实现。
 
 ---
 
@@ -146,7 +147,7 @@ OMOPredict/
 | **M5** | 优化与工艺指导 | 参数优化、灵敏度分析、报告导出 |
 | **M6** | 集成与打磨 | 端到端联调、文档完善、示例数据与演示 |
 
-**当前进度**：M1（进行中）——omo.optics（TMM + Drude）已完成；electrical / emi 待实现。
+**当前进度**：M1（进行中）——omo.optics（TMM + Drude）、omo.electrical（方阻 + FS）已完成；emi 待实现。
 
 **阶段完成标准**：每个里程碑必须有可运行的代码 + 测试通过 + 文档更新，不允许"只写代码不验证"。
 
