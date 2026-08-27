@@ -54,7 +54,7 @@ Python 侧同时提供可独立运行的 CLI，便于脚本化批量仿真与对
 - **方阻 Rs（Ω/sq）**：多层膜并联等效模型；金属层主导，超薄金属需考虑**电阻率尺寸效应**（Fuchs–Sondheimer 等）。
 - 输出：方阻、等效电阻率、与膜厚的关系曲线。
 
-### 3.3 电磁屏蔽效能（EMI SE）
+### 3.3 电磁屏蔽效能（EMI SE）—— ✅ M1 已实现（见 engine/src/omo/emi/ 与 docs/physics/emi.md）
 - **Schelkunoff / 传输线模型**：SE_total = SE_R + SE_A + SE_M（反射、吸收、多次反射损耗）。
 - 薄导电膜近似：SE ≈ 20·log₁₀(1 + Z₀ / (2Rs))，Z₀ = 377 Ω；多层结构用多层传输线矩阵。
 - 输出：8.2–12.4 GHz（X 波段）及更宽频段（1–18 GHz）的 SE 曲线。
@@ -128,9 +128,10 @@ OMOPredict/
         └── stores/            # Pinia 状态
 ```
 
-> 当前仓库处于 **M1 阶段（进行中）**：脚手架与 CI 已完成（Python 层 + GitHub Actions）；
-> omo.optics（TMM + Drude）与 omo.electrical（并联方阻 + Fuchs–Sondheimer）已实现并通过验证；
-> emi（屏蔽效能）待实现。
+> 当前仓库处于 **M1 阶段（已完成）**：脚手架、CI、三个物理模块全部落地——
+> optics（TMM + Drude）、electrical（并联方阻 + Fuchs–Sondheimer）、
+> emi（传输线屏蔽模型 + Schelkunoff 分解 + 薄膜近似），均通过解析解验证；
+> 下一步 M2（文献对标框架）。
 
 ---
 
@@ -147,7 +148,7 @@ OMOPredict/
 | **M5** | 优化与工艺指导 | 参数优化、灵敏度分析、报告导出 |
 | **M6** | 集成与打磨 | 端到端联调、文档完善、示例数据与演示 |
 
-**当前进度**：M1（进行中）——omo.optics（TMM + Drude）、omo.electrical（方阻 + FS）已完成；emi 待实现。
+**当前进度**：M1 ✅ 完成（optics TMM+Drude、electrical 方阻+FS、emi 屏蔽效能）；下一步 M2（文献对标框架）。
 
 **阶段完成标准**：每个里程碑必须有可运行的代码 + 测试通过 + 文档更新，不允许"只写代码不验证"。
 
@@ -215,4 +216,4 @@ cd frontend && pnpm dev
 
 ---
 
-*最后更新：M0 阶段。每次架构或物理模型变更时，记得同步更新本文件。*
+*最后更新：M1 完成。每次架构或物理模型变更时，记得同步更新本文件。*
