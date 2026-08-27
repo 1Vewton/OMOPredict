@@ -1,0 +1,61 @@
+{
+  "meta": {
+    "id": "synthetic_ito_ag_ito",
+    "paper": {
+      "title": "Synthetic dataset for benchmark framework validation (not from literature)",
+      "authors": "OMOPredict team",
+      "year": 2025,
+      "doi": "synthetic",
+      "journal": "internal"
+    },
+    "substrate": { "material": "glass", "index": 1.5 },
+    "extraction": {
+      "method": "engine-generated",
+      "note": "合成数据：由物理引擎生成（ITO 常数 n=1.8、Ag Drude、FS 尺寸效应），仅用于 M2.1 框架验证"
+    }
+  },
+  "records": [
+    {
+      "id": "s1",
+      "stack": [
+        { "material": "ITO", "thickness_nm": 40.0 },
+        { "material": "Ag", "thickness_nm": 10.0 },
+        { "material": "ITO", "thickness_nm": 40.0 }
+      ],
+      "measured": {
+        "transmittance": [{ "wavelength_nm": 550.0, "value": 0.9745 }],
+        "reflectance": [{ "wavelength_nm": 550.0, "value": 0.0162 }],
+        "sheet_resistance": 3.971,
+        "se_x_band": 33.7
+      }
+    },
+    {
+      "id": "s2",
+      "stack": [
+        { "material": "ITO", "thickness_nm": 35.0 },
+        { "material": "Ag", "thickness_nm": 12.0 },
+        { "material": "ITO", "thickness_nm": 35.0 }
+      ],
+      "measured": {
+        "transmittance": [{ "wavelength_nm": 550.0, "value": 0.9185 }],
+        "reflectance": [{ "wavelength_nm": 550.0, "value": 0.0704 }],
+        "sheet_resistance": 3.21,
+        "se_x_band": 35.52
+      }
+    },
+    {
+      "id": "s3",
+      "stack": [
+        { "material": "ITO", "thickness_nm": 45.0 },
+        { "material": "Ag", "thickness_nm": 8.0 },
+        { "material": "ITO", "thickness_nm": 45.0 }
+      ],
+      "measured": {
+        "transmittance": [{ "wavelength_nm": 550.0, "value": 0.9926 }],
+        "reflectance": [{ "wavelength_nm": 550.0, "value": 0.0002 }],
+        "sheet_resistance": 5.032,
+        "se_x_band": 31.69
+      }
+    }
+  ]
+}
