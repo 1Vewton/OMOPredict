@@ -25,14 +25,15 @@ def simulate_record(
     record: BenchmarkRecord,
     resolver: MaterialResolver,
     *,
-    substrate_index: float = 1.5,
+    substrate_index: float | None = None,
 ) -> SimulationResult:
     """对一条记录运行物理引擎，按 measured 声明的量分发到 optics/electrical/emi。
 
     参数:
         record: 数据集记录（stack + measured）
         resolver: 材料解析器（引擎默认 + 数据集覆盖）
-        substrate_index: 光学衬底折射率（默认玻璃 1.5，与数据集 meta 对齐）
+        substrate_index: 光学衬底折射率；None 时用默认玻璃 1.5
+            （run_benchmark 会传入数据集 meta.substrate.index）
 
     返回:
         SimulationResult（各量仅在 measured 声明时计算）
@@ -43,6 +44,9 @@ def simulate_record(
     from omo.electrical import ConductiveLayer, sheet_resistance
     from omo.emi import ShieldingLayer, shielding_effectiveness
     from omo.optics import Layer, transfer_matrix
+
+    if substrate_index is None:
+        substrate_index = 1.5
 
     measured = record.measured
 

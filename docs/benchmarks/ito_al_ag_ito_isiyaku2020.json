@@ -1,0 +1,40 @@
+{
+  "meta": {
+    "id": "ito_al_ag_ito_isiyaku2020",
+    "paper": {
+      "title": "Structural optical and electrical properties of a transparent conductive ITO/Al-Ag/ITO multilayer contact",
+      "authors": "A. K. Isiyaku, A. H. Ali, N. Nayan",
+      "year": 2020,
+      "doi": "10.3762/bjnano.11.57",
+      "journal": "Beilstein Journal of Nanotechnology"
+    },
+    "substrate": { "material": "soda-lime glass", "index": 1.52 },
+    "extraction": {
+      "method": "table",
+      "note": "正文与 Table 2：ITO(37)/Al(6)/Ag(9)/ITO(37) nm（反射计实测），400°C 退火后 T=86.1%@450 nm、Rs=2.93 Ω/sq（四探针）。T 为相对玻璃基线的透过率。Al 光学常数取 Palik 手册可见光近似 n=0.8+6.1i、电阻率 2.65e-8 Ω·m（CRC），待 M2.3 校准。"
+    }
+  },
+  "records": [
+    {
+      "id": "annealed_400C",
+      "stack": [
+        { "material": "ITO", "thickness_nm": 37.0 },
+        { "material": "Al", "thickness_nm": 6.0 },
+        { "material": "Ag", "thickness_nm": 9.0 },
+        { "material": "ITO", "thickness_nm": 37.0 }
+      ],
+      "measured": {
+        "transmittance": [{ "wavelength_nm": 450.0, "value": 0.861 }],
+        "sheet_resistance": 2.93
+      }
+    }
+  ],
+  "simulation": {
+    "materials": {
+      "Al": {
+        "optics": { "constant_index": [0.8, 6.1] },
+        "electrical": { "bulk_resistivity": 2.65e-8 }
+      }
+    }
+  }
+}

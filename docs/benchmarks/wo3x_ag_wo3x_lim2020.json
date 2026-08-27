@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "id": "wo3x_ag_wo3x_lim2020",
+    "paper": {
+      "title": "Deposition Rate Effect on Optical and Electrical Properties of Thermally Evaporated WO3-x/Ag/WO3-x Multilayer Electrode for Transparent and Flexible Thin Film Heaters",
+      "authors": "S.-H. Lim, H.-K. Kim",
+      "year": 2020,
+      "doi": "10.1038/s41598-020-65260-1",
+      "journal": "Scientific Reports"
+    },
+    "substrate": { "material": "CPI", "index": 1.55 },
+    "extraction": {
+      "method": "table",
+      "note": "Table 1/2：WAW(30/12/30 nm) 对称结构，Ag 沉积速率 0.25-1.0 nm/s 系列（WO3-x 速率固定 0.25 nm/s）。Rs 见表 2（四探针）；T=92.16%@550 nm 为优化样品（Ag 1.0 nm/s）。WO3-x 电阻率 2.01e-3 Ω·cm（2.01e-5 Ω·m，原文 Hall 实测）；光学折射率取常见文献值 n≈2.0（近似，待 M2.3 校准）。Rs 随沉积速率的差异源于界面形貌（岛状生长），引擎厚度模型无法复现，预期偏差属模型边界。"
+    }
+  },
+  "records": [
+    {
+      "id": "ag_rate_0.25",
+      "stack": [
+        { "material": "WO3x", "thickness_nm": 30.0 },
+        { "material": "Ag", "thickness_nm": 12.0 },
+        { "material": "WO3x", "thickness_nm": 30.0 }
+      ],
+      "measured": { "sheet_resistance": 4.566 }
+    },
+    {
+      "id": "ag_rate_0.50",
+      "stack": [
+        { "material": "WO3x", "thickness_nm": 30.0 },
+        { "material": "Ag", "thickness_nm": 12.0 },
+        { "material": "WO3x", "thickness_nm": 30.0 }
+      ],
+      "measured": { "sheet_resistance": 4.458 }
+    },
+    {
+      "id": "ag_rate_0.75",
+      "stack": [
+        { "material": "WO3x", "thickness_nm": 30.0 },
+        { "material": "Ag", "thickness_nm": 12.0 },
+        { "material": "WO3x", "thickness_nm": 30.0 }
+      ],
+      "measured": { "sheet_resistance": 3.896 }
+    },
+    {
+      "id": "ag_rate_1.00",
+      "stack": [
+        { "material": "WO3x", "thickness_nm": 30.0 },
+        { "material": "Ag", "thickness_nm": 12.0 },
+        { "material": "WO3x", "thickness_nm": 30.0 }
+      ],
+      "measured": {
+        "transmittance": [{ "wavelength_nm": 550.0, "value": 0.9216 }],
+        "sheet_resistance": 3.773
+      }
+    }
+  ],
+  "simulation": {
+    "materials": {
+      "WO3x": {
+        "optics": { "constant_index": [2.0, 0.0] },
+        "electrical": { "bulk_resistivity": 2.01e-5 }
+      }
+    }
+  }
+}

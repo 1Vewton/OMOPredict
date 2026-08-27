@@ -1,0 +1,34 @@
+{
+  "meta": {
+    "id": "in2o3_ag_in2o3_voronin2025",
+    "paper": {
+      "title": "Broadband EMI Shielding Performance in Optically Transparent Flexible In2O3/Ag/In2O3 Thin Film Structures",
+      "authors": "A. S. Voronin et al.",
+      "year": 2025,
+      "doi": "10.3390/ma18235393",
+      "journal": "Materials"
+    },
+    "substrate": { "material": "PET", "index": 1.65 },
+    "extraction": {
+      "method": "table",
+      "note": "Table 1（Rs/T）与正文（Ag 厚度 7.3/10.1/13.2 nm，TEM）。In2O3 层厚度仅见于原文图 3e（TEM 截面图），正文未给出——本数据集对标限定 Rs/SE（Ag 主导，In2O3 按绝缘处理，其并联贡献 <5%），stack 仅含 Ag 层；透过率对标待补 In2O3 层厚后加入。SE 原文报告宽带 25-30 dB（10 MHz-1 THz，含 X 波段），取区间中值 28 dB 作基准（±2.5 dB 不确定性）。"
+    }
+  },
+  "records": [
+    {
+      "id": "IAI-1",
+      "stack": [{ "material": "Ag", "thickness_nm": 7.3 }],
+      "measured": { "sheet_resistance": 31.4 }
+    },
+    {
+      "id": "IAI-2",
+      "stack": [{ "material": "Ag", "thickness_nm": 10.1 }],
+      "measured": { "sheet_resistance": 14.3 }
+    },
+    {
+      "id": "IAI-3",
+      "stack": [{ "material": "Ag", "thickness_nm": 13.2 }],
+      "measured": { "sheet_resistance": 6.4, "se_x_band": 28.0 }
+    }
+  ]
+}

@@ -46,7 +46,11 @@
 
 ## 当前文件
 
-| 文件 | 来源 | 状态 |
-|---|---|---|
-| `synthetic_ito_ag_ito.json` | 合成（引擎生成） | 框架验证用 |
-| 真实文献数据集（≥3 篇） | 待提取（M2.2） | 进行中 |
+| 文件 | 体系 | 来源 | 数据点 | 状态 |
+|---|---|---|---|---|
+| `synthetic_ito_ag_ito.json` | ITO/Ag/ITO | 合成（引擎生成） | 3 | 框架验证用 |
+| `in2o3_ag_in2o3_voronin2025.json` | In₂O₃/Ag/In₂O₃ | Voronin 2025, Materials 18, 5393, DOI 10.3390/ma18235393 | 3（Rs/SE） | ✅ 已入库 |
+| `ito_al_ag_ito_isiyaku2020.json` | ITO/Al/Ag/ITO | Isiyaku 2020, Beilstein J. Nanotechnol. 11, 57, DOI 10.3762/bjnano.11.57 | 1（T/Rs） | ✅ 已入库 |
+| `wo3x_ag_wo3x_lim2020.json` | WO₃₋ₓ/Ag/WO₃₋ₓ | Lim & Kim 2020, Sci. Rep. 10, DOI 10.1038/s41598-020-65260-1 | 4（Rs）+1（T） | ✅ 已入库 |
+
+生成的对标报告（`*_report.json` / `*_report.png`）为派生产物，已 gitignore；随时可用 `omo.benchmark.run_benchmark` 重新生成。

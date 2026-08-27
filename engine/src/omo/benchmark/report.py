@@ -73,7 +73,7 @@ class BenchmarkReport:
 def run_benchmark(
     dataset: BenchmarkDataset,
     *,
-    substrate_index: float = 1.5,
+    substrate_index: float | None = None,
     resolver: MaterialResolver | None = None,
 ) -> BenchmarkReport:
     """运行整份数据集的对标：逐记录仿真 → 按量聚合误差。
@@ -82,13 +82,15 @@ def run_benchmark(
 
     参数:
         dataset: 已加载的数据集
-        substrate_index: 光学衬底折射率（默认 1.5）
+        substrate_index: 光学衬底折射率；None 时取数据集 meta.substrate.index
         resolver: 材料解析器（默认按 dataset.simulation 构造）
 
     返回:
         BenchmarkReport（quantities 为各量聚合指标，records 为逐记录明细）
     """
     resolver = resolver or MaterialResolver(dataset.simulation)
+    if substrate_index is None:
+        substrate_index = dataset.meta.substrate.index
     samples: dict[str, list[tuple[float, float]]] = defaultdict(list)
     record_errors: list[RecordError] = []
 
