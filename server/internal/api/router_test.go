@@ -10,7 +10,7 @@ import (
 func TestHealth(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
-	NewRouter().ServeHTTP(rec, req)
+	NewRouter(newTestService(t)).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -30,7 +30,7 @@ func TestHealth(t *testing.T) {
 func TestVersion(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/version", nil)
 	rec := httptest.NewRecorder()
-	NewRouter().ServeHTTP(rec, req)
+	NewRouter(newTestService(t)).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -47,7 +47,7 @@ func TestVersion(t *testing.T) {
 func TestUnknownRoute404(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/nope", nil)
 	rec := httptest.NewRecorder()
-	NewRouter().ServeHTTP(rec, req)
+	NewRouter(newTestService(t)).ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
@@ -56,7 +56,7 @@ func TestUnknownRoute404(t *testing.T) {
 func TestMethodNotAllowed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/health", nil)
 	rec := httptest.NewRecorder()
-	NewRouter().ServeHTTP(rec, req)
+	NewRouter(newTestService(t)).ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", rec.Code)
 	}

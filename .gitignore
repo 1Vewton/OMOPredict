@@ -227,3 +227,6 @@ docs/benchmarks/*_report.png
 
 # NN 代理模型产物（可重新训练）
 engine/artifacts/
+
+# Go 中间层本地产物
+server/*.db

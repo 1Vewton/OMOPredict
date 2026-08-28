@@ -114,7 +114,7 @@ OMOPredict/
 ├── server/                    # ── Go 中间层 ──（M3 进行中：骨架 + CI + /health + 数据模型完成）
 │   ├── cmd/omopredict/        # 主程序入口（HTTP 服务，优雅退出）
 │   ├── internal/
-│   │   ├── user/              # 用户注册/登录/JWT（实现中）
+│   │   ├── user/              # 用户注册/登录 + JWT（M3 完成：bcrypt + SQLite + 冒烟通过）
 │   │   ├── model/             # 数据模型（膜结构、任务、结果）—— snake_case JSON
 │   │   ├── task/              # 仿真任务编排（调 Python，实现中）
 │   │   └── api/               # REST 路由与中间件（/health、/version）
@@ -128,10 +128,9 @@ OMOPredict/
         └── stores/            # Pinia 状态
 ```
 
-> 当前仓库处于 **M3 阶段（进行中）**：Python 侧 omo.api（FastAPI /simulate + /health）
-> 已完成并通过冒烟（ITO/Ag/ITO → T/Rs/SE 与引擎一致）；材料解析器提升为共享模块
-> omo.materials（benchmark/校准/API 同源）；Go 侧用户系统（JWT）、存储、任务编排
-> （调 Python 引擎）进行中。
+> 当前仓库处于 **M3 阶段（进行中）**：Python omo.api（/simulate）与 Go 用户系统
+> （注册/登录/JWT，bcrypt + SQLite）均完成并通过冒烟；材料解析器共享模块
+> omo.materials 落地。剩余：Go 任务存储与编排（调 Python 引擎）、REST API 完整化。
 
 ---
 
@@ -148,7 +147,7 @@ OMOPredict/
 | **M5** | 优化与工艺指导 | 参数优化、灵敏度分析、报告导出 |
 | **M6** | 集成与打磨 | 端到端联调、文档完善、示例数据与演示 |
 
-**当前进度**：M3（进行中）——Python omo.api 完成（/simulate 冒烟通过）+ Go 骨架/CI/健康检查完成；Go 用户系统 / 存储 / 任务编排进行中。
+**当前进度**：M3（进行中）——Python omo.api 完成 + Go 用户系统（注册/登录/JWT）完成；任务存储与编排（调 Python）进行中。
 
 **阶段完成标准**：每个里程碑必须有可运行的代码 + 测试通过 + 文档更新，不允许"只写代码不验证"。
 

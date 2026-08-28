@@ -16,17 +16,25 @@ import (
 	"time"
 
 	"github.com/1Vewton/OMOPredict/server/internal/api"
+	"github.com/1Vewton/OMOPredict/server/internal/user"
 )
 
 func main() {
+	store, err := user.OpenSQLiteStore(dbPath())
+	if err != nil {
+		log.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	svc := user.NewService(store, jwtSecret(), jwtTTL())
+
 	addr := os.Getenv("OMO_SERVER_ADDR")
 	if addr == "" {
 		addr = ":8080"
 	}
-
 	srv := &http.Server{
 		Addr:         addr,
-		Handler:      api.NewRouter(),
+		Handler:      api.NewRouter(svc),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
@@ -46,4 +54,31 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
+}
+
+// dbPath SQLite 数据库路径（默认工作目录下 omopredict.db）。
+func dbPath() string {
+	if p := os.Getenv("OMO_DB_PATH"); p != "" {
+		return p
+	}
+	return "omopredict.db"
+}
+
+// jwtSecret JWT 签名密钥；生产环境必须通过 OMO_JWT_SECRET 设置。
+func jwtSecret() []byte {
+	if s := os.Getenv("OMO_JWT_SECRET"); s != "" {
+		return []byte(s)
+	}
+	log.Println("warning: OMO_JWT_SECRET 未设置，使用开发默认密钥（生产必须设置）")
+	return []byte("dev-secret-do-not-use-in-prod")
+}
+
+// jwtTTL 令牌有效期（默认 24h）。
+func jwtTTL() time.Duration {
+	if v := os.Getenv("OMO_JWT_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return 24 * time.Hour
 }

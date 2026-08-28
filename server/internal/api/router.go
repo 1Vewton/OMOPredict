@@ -10,16 +10,22 @@ import (
 	"net/http"
 	"runtime"
 	"time"
+
+	"github.com/1Vewton/OMOPredict/server/internal/user"
 )
 
 // version 服务版本（可用 ldflags 注入）。
 var version = "0.1.0"
 
 // NewRouter 组装全部路由（Go 1.22+ 方法化模式）。
-func NewRouter() http.Handler {
+func NewRouter(svc *user.Service) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /version", handleVersion)
+
+	mux.HandleFunc("POST /api/auth/register", registerHandler(svc))
+	mux.HandleFunc("POST /api/auth/login", loginHandler(svc))
+	mux.Handle("GET /api/auth/me", authMiddleware(svc)(meHandler(svc)))
 	return withMiddleware(mux)
 }
 
