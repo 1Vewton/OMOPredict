@@ -1,5 +1,5 @@
-# CI —— M0 起效：Python 数据科学层（lint + 测试）
-# 后续里程碑扩展：M3 加 Go（server/），M4 加前端（frontend/）
+# CI —— Python 数据科学层（M0 起）+ Go 中间层（M3 起）
+# 后续里程碑扩展：M4 加前端（frontend/）
 name: CI
 
 on:
@@ -34,3 +34,35 @@ jobs:
 
       - name: CLI smoke
         run: uv run omo-cli --version
+
+  go:
+    name: Go (fmt + vet + build + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+
+      - name: Format check (gofmt)
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "未通过 gofmt 的文件："
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./...

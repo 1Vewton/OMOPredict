@@ -111,13 +111,13 @@ OMOPredict/
 │   │   ├── api/               # FastAPI 服务（M3 接入）
 │   │   └── cli/               # 命令行入口（omo-cli，M1 起可用）
 │   └── tests/                 # 单元测试 + 文献基准测试
-├── server/                    # ── Go 中间层 ──
-│   ├── cmd/omopredict/        # 主程序入口
+├── server/                    # ── Go 中间层 ──（M3 进行中：骨架 + CI + /health + 数据模型完成）
+│   ├── cmd/omopredict/        # 主程序入口（HTTP 服务，优雅退出）
 │   ├── internal/
-│   │   ├── user/              # 用户注册/登录/JWT
-│   │   ├── model/             # 数据模型（膜结构、任务、结果）
-│   │   ├── task/              # 仿真任务编排（调 Python）
-│   │   └── api/               # REST 路由与中间件
+│   │   ├── user/              # 用户注册/登录/JWT（实现中）
+│   │   ├── model/             # 数据模型（膜结构、任务、结果）—— snake_case JSON
+│   │   ├── task/              # 仿真任务编排（调 Python，实现中）
+│   │   └── api/               # REST 路由与中间件（/health、/version）
 │   └── go.mod
 └── frontend/                  # ── Vue 3 + TS 前端 ──
     ├── package.json
@@ -128,10 +128,10 @@ OMOPredict/
         └── stores/            # Pinia 状态
 ```
 
-> 当前仓库处于 **M2.5 阶段（已完成）**：NN 代理模型 v1 落地——物理引擎生成 20k 训练 +
-> 3k 独立测试样本（固定种子、边界覆盖、版本化），MLP 逼近 ITO/Ag/ITO「厚度 → T(λ)/Rs/SE(f)」，
-> 引擎基准验证 T MAE 0.09%、Rs 相对误差 0.2%、SE 0.02 dB；训练脚本可复现、模型非黑盒交付。
-> 下一步 M3（Go 中间层）。
+> 当前仓库处于 **M3 阶段（进行中）**：Go 中间层骨架落地——标准布局 + CI（Go job：
+> gofmt/vet/build/test）+ 健康检查（/health、/version 冒烟通过）+ 数据模型
+> （FilmStack/SimulationTask/TaskResult）；用户系统（JWT）、存储、任务编排
+> （调 Python 引擎）进行中。
 
 ---
 
@@ -148,7 +148,7 @@ OMOPredict/
 | **M5** | 优化与工艺指导 | 参数优化、灵敏度分析、报告导出 |
 | **M6** | 集成与打磨 | 端到端联调、文档完善、示例数据与演示 |
 
-**当前进度**：M2.5 ✅ 完成（代理模型 v1：训练/验证/可复现脚本齐备）；下一步 M3（Go 中间层）。
+**当前进度**：M3（进行中）——Go 骨架 + CI + 健康检查 + 数据模型完成；用户系统 / 存储 / 任务编排（调 Python）进行中。
 
 **阶段完成标准**：每个里程碑必须有可运行的代码 + 测试通过 + 文档更新，不允许"只写代码不验证"。
 
@@ -191,8 +191,9 @@ cd engine && uv run pytest                # 运行测试（含文献基准）
 cd engine && uv run ruff check src tests  # 代码检查
 cd engine && uv run omo-cli --info        # CLI 入口
 
-# Go 中间层（M3 后可用）
+# Go 中间层（M3 起可用）
 cd server && go build ./...
+cd server && go vet ./...
 cd server && go test ./...
 
 # 前端（M4 后可用）
@@ -216,4 +217,4 @@ cd frontend && pnpm dev
 
 ---
 
-*最后更新：M2.5 完成。每次架构或物理模型变更时，记得同步更新本文件。*
+*最后更新：M3 进行中。每次架构或物理模型变更时，记得同步更新本文件。*
