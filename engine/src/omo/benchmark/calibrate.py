@@ -25,13 +25,13 @@ from typing import Any
 import numpy as np
 from scipy.optimize import minimize
 
-from omo.benchmark.materials import MaterialResolver
 from omo.benchmark.metrics import QuantityMetrics, compute_metrics
 from omo.benchmark.report import collect_samples
-from omo.benchmark.schema import (
-    BenchmarkDataset,
+from omo.benchmark.schema import BenchmarkDataset
+from omo.materials import (
     ElectricalOverride,
     MaterialOverrides,
+    MaterialResolver,
     OpticsOverride,
 )
 from omo.optics import DrudeMaterial

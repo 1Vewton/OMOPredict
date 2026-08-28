@@ -47,6 +47,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from omo.materials import ElectricalOverride, MaterialOverrides, OpticsOverride
 from omo.optics import DrudeMaterial
 
 
@@ -129,45 +130,7 @@ class BenchmarkRecord:
     measured: Measurements
 
 
-@dataclass(frozen=True)
-class OpticsOverride:
-    """光学常数覆盖：常数复折射率 或 完整 Drude 参数（二者取一）。"""
-
-    constant_index: complex | None = None
-    drude: DrudeMaterial | None = None
-
-    @property
-    def is_empty(self) -> bool:
-        return self.constant_index is None and self.drude is None
-
-
-@dataclass(frozen=True)
-class ElectricalOverride:
-    """电学常数覆盖（ρ_bulk、λ、p，均为可选）。"""
-
-    bulk_resistivity: float | None = None
-    mean_free_path_nm: float | None = None
-    specularity: float | None = None
-
-    @property
-    def is_empty(self) -> bool:
-        return (
-            self.bulk_resistivity is None
-            and self.mean_free_path_nm is None
-            and self.specularity is None
-        )
-
-
-@dataclass(frozen=True)
-class MaterialOverrides:
-    """单个材料的光学/电学覆盖。"""
-
-    optics: OpticsOverride = OpticsOverride()
-    electrical: ElectricalOverride = ElectricalOverride()
-
-    @property
-    def is_empty(self) -> bool:
-        return self.optics.is_empty and self.electrical.is_empty
+# 覆盖类型已提升到共享模块 omo.materials（引擎/校准/API 共用），此处复用导入。
 
 
 @dataclass(frozen=True)

@@ -1,12 +1,12 @@
-"""材料解析：material 名 → 引擎输入（光学 + 电学），支持数据集覆盖。
+"""材料解析与常数覆盖（引擎共享模块）。
 
-默认光学模型：
-- ITO / 玻璃：常数复折射率（omo.optics.materials）
-- Ag：Drude（omo.optics.drude.SILVER）
-默认电学模型：omo.electrical.materials（ρ_bulk、λ、p）
-覆盖（M2.3 校准产物）：dataset 的 simulation.materials 段，见 schema.py。
+- 默认材料注册表：material 名 → 光学折射率源 + 电学参数
+  （ITO/Ag/玻璃；色散金属见 omo.optics.drude，电学常数见 omo.electrical.materials）；
+- MaterialResolver：材料名 → 引擎输入，支持常数覆盖（校准产物 / API 覆盖）；
+- 覆盖类型（OpticsOverride / ElectricalOverride / MaterialOverrides）由
+  omo.benchmark.schema 复用（数据集 simulation 段）与 omo.api 复用。
 
-约定：无电学模型的材料（如玻璃）在电学解析中返回 None（不参与方阻/屏蔽）。
+约定：透明绝缘材料（无电学模型）在电学解析中返回 None（不参与方阻/屏蔽）。
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from omo.benchmark.schema import MaterialOverrides
 from omo.electrical.materials import (
     ITO_BULK_RESISTIVITY,
     SILVER_BULK_RESISTIVITY,
@@ -23,6 +22,47 @@ from omo.electrical.materials import (
 from omo.optics import DrudeMaterial
 from omo.optics.drude import SILVER
 from omo.optics.materials import GLASS, ITO
+
+
+@dataclass(frozen=True)
+class OpticsOverride:
+    """光学常数覆盖：常数复折射率 或 完整 Drude 参数（二者取一）。"""
+
+    constant_index: complex | None = None
+    drude: DrudeMaterial | None = None
+
+    @property
+    def is_empty(self) -> bool:
+        return self.constant_index is None and self.drude is None
+
+
+@dataclass(frozen=True)
+class ElectricalOverride:
+    """电学常数覆盖（ρ_bulk、λ、p，均为可选）。"""
+
+    bulk_resistivity: float | None = None
+    mean_free_path_nm: float | None = None
+    specularity: float | None = None
+
+    @property
+    def is_empty(self) -> bool:
+        return (
+            self.bulk_resistivity is None
+            and self.mean_free_path_nm is None
+            and self.specularity is None
+        )
+
+
+@dataclass(frozen=True)
+class MaterialOverrides:
+    """单个材料的光学/电学覆盖。"""
+
+    optics: OpticsOverride = OpticsOverride()
+    electrical: ElectricalOverride = ElectricalOverride()
+
+    @property
+    def is_empty(self) -> bool:
+        return self.optics.is_empty and self.electrical.is_empty
 
 
 @dataclass(frozen=True)
@@ -53,7 +93,7 @@ _DEFAULT_ELECTRICAL: dict[str, ElectricalDefaults | None] = {
 
 
 class MaterialResolver:
-    """材料名 → 引擎输入；支持 dataset 的 simulation 覆盖（校准产物）。"""
+    """材料名 → 引擎输入；支持常数覆盖（校准产物 / API 覆盖）。"""
 
     def __init__(self, overrides: Mapping[str, MaterialOverrides] | None = None) -> None:
         self._overrides = dict(overrides or {})
@@ -74,7 +114,7 @@ class MaterialResolver:
             return _DEFAULT_OPTICS[material]
         except KeyError:
             raise ValueError(
-                f"未收录材料 {material!r} 的光学模型（可在 simulation.materials 中提供）"
+                f"未收录材料 {material!r} 的光学模型（可在覆盖中提供）"
             ) from None
 
     def electrical(self, material: str) -> ElectricalDefaults | None:

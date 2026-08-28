@@ -6,8 +6,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from omo.benchmark.materials import MaterialResolver
 from omo.benchmark.schema import BenchmarkRecord, SpectralPoint
+from omo.materials import MaterialResolver
 
 
 @dataclass(frozen=True)

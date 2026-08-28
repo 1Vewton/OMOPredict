@@ -18,9 +18,9 @@ from omo.benchmark import (
     run_benchmark,
     sensitivity_analysis,
 )
-from omo.benchmark.materials import MaterialResolver
 from omo.benchmark.schema import ElectricalOverride, MaterialOverrides
 from omo.electrical import SILVER_BULK_RESISTIVITY, ConductiveLayer, sheet_resistance
+from omo.materials import MaterialResolver
 from omo.optics import SILVER
 
 ROOT = Path(__file__).resolve().parents[2]

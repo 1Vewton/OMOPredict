@@ -21,7 +21,6 @@ from omo.benchmark.calibrate import (
     merge_overrides,
     sensitivity_analysis,
 )
-from omo.benchmark.materials import ElectricalDefaults, MaterialResolver
 from omo.benchmark.metrics import QuantityMetrics, compute_metrics
 from omo.benchmark.report import (
     BenchmarkReport,
@@ -35,11 +34,8 @@ from omo.benchmark.schema import (
     BenchmarkDataset,
     BenchmarkRecord,
     DatasetMeta,
-    ElectricalOverride,
     ExtractionInfo,
-    MaterialOverrides,
     Measurements,
-    OpticsOverride,
     PaperMeta,
     SchemaError,
     SpectralPoint,
@@ -48,6 +44,7 @@ from omo.benchmark.schema import (
     load_dataset,
     parse_dataset,
 )
+from omo.materials import ElectricalDefaults, MaterialResolver
 
 __all__ = [
     "BenchmarkDataset",

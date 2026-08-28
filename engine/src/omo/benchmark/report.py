@@ -16,10 +16,10 @@ matplotlib.use("Agg")  # 无显示环境（CI/服务端）headless 出图
 
 import numpy as np
 
-from omo.benchmark.materials import MaterialResolver
 from omo.benchmark.metrics import QuantityMetrics, compute_metrics
 from omo.benchmark.runner import simulate_record
 from omo.benchmark.schema import BenchmarkDataset
+from omo.materials import MaterialResolver
 
 # 报告面板顺序（plot 用）
 _QUANTITY_ORDER = (
