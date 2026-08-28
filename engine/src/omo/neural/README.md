@@ -1,32 +1,68 @@
-# omo.neural —— 神经网络代理模型
+# omo.neural —— 神经网络代理模型（M2.5 已实现，v1）
 
 ## 职责
 
 用 NN 逼近物理引擎的「结构参数 → 性能」映射，作为**仿真加速器与优化代理**：
 
-- 正向代理：输入各层厚度 / 光学常数 / 电阻率 → 输出 T(λ)、Rs、SE(f)
-- **物理引擎仍是唯一验证基准，NN 不替代物理引擎**（见 AGENTS.md §3.6）
+- 正向代理：输入三层厚度 → 输出 T(λ) 光谱、Rs、SE(f) 曲线
+- **物理引擎仍是唯一验证基准，NN 不替代物理引擎**（AGENTS.md §3.6）
 
-## 核心模块（计划，M2.5 实现）
+## 已实现模块
 
-- `data/`：由物理引擎生成训练数据（版本化、固定随机种子）
-- `train.py` / `inference.py`：代理模型训练与推理
-- `validate.py`：与物理引擎的 MAE/RMSE 对比与外推风险报告
+| 模块 | 职责 |
+|---|---|
+| `data.py` | 引擎生成数据：`generate_dataset` / `SurrogateConfig` / `SurrogateDataset`（固定种子、20% 边界样本、管线版本化） |
+| `model.py` | `SurrogateModel`：MLP（3 → 隐藏 → 82 输出）、z-score 归一化、早停、`train/predict/save/load` |
+| `validate.py` | `validate`：独立测试集（不同种子）与引擎对比 → `SurrogateValidationReport`（T/Rs/SE 的 MAE/RMSE + 训练域边界） |
 
-## 如何调用（计划接口，M2.5 落地后生效）
+## 如何调用
 
 ```python
-from omo.neural import SurrogateModel
-from omo.neural.data import generate_dataset
+from omo.neural import SurrogateConfig, SurrogateDataset, SurrogateModel, generate_dataset, validate
+from omo.neural.data import PIPELINE_VERSION
 
-X, y = generate_dataset(n_samples=50_000, seed=42)
-model = SurrogateModel()
-model.train(X, y)
-T_pred, Rs_pred, SE_pred = model.predict(stack=("ito", 40.0, "ag", 10.0, "ito", 40.0))
+# 1. 引擎生成数据（20k 样本默认；训练/测试用不同种子防泄漏）
+train = generate_dataset(SurrogateConfig(n_samples=20_000, seed=42))
+test = generate_dataset(SurrogateConfig(n_samples=2_000, seed=7))
+
+# 2. 训练（固定种子，可复现）
+model = SurrogateModel(train.config)
+model.train(train)                    # -> {"val_loss_best": ..., "epochs_run": ...}
+
+# 3. 预测（反归一化到物理单位）
+pred = model.predict([[40.0, 10.0, 40.0]])   # ITO(40)/Ag(10)/ITO(40)
+pred.transmittance      # (1, 63) 波长 380–1000 nm
+pred.sheet_resistance   # (1,) Ω/sq
+pred.se_db              # (1, 18) 频率 1–18 GHz
+
+# 4. 验证（引擎为基准）+ 外推风险
+report = validate(model, test)
+report.save_json("surrogate_report.json")
+
+# 5. 持久化（交付含配置/管线版本，非黑盒）
+model.save("surrogate.pt")
+loaded = SurrogateModel.load("surrogate.pt")
 ```
 
-## 数据守则
+## 数据守则（AGENTS.md §6.9）
 
-- 训练数据一律由物理引擎生成并版本化；文献实测仅用于事后校准与验证
-- Rs 等跨数量级目标取 log 训练；光谱输出用固定波长网格向量回归
-- 交付必须含可复现脚本（数据生成种子、超参数、训练配置），不交付"黑盒权重"
+- 训练数据一律由物理引擎生成并版本化（`PIPELINE_VERSION` + 固定种子）；文献实测仅用于事后校准
+- 采样覆盖参数空间边界（20% 边界样本含角点）；训练/测试不同种子
+- Rs 取 log₁₀ 训练；光谱/SE 用固定网格向量回归
+- 预测超出训练域（oxide 20–80 nm、metal 5–20 nm）属于**外推**，精度不保证（报告含训练域）
+
+## 实测结果（20k 训练 / 3k 独立测试，引擎为基准）
+
+| 指标 | 值 |
+|---|---|
+| T(λ) MAE / RMSE | 0.0009 / 0.0011 |
+| Rs 相对误差 | 0.2%（log₁₀ MAE 0.0009） |
+| SE MAE / RMSE | 0.02 / 0.02 dB |
+
+复现：`cd engine && uv run python scripts/train_surrogate.py`
+（产物：`artifacts/surrogate_ito_ag_ito.pt`、`docs/benchmarks/surrogate_report.json`，均已 gitignore）。
+
+## v1 范围与扩展
+
+- v1：ITO/Ag/ITO 三层，输入三个厚度，材料固定（ITO n=1.8、Ag Drude、玻璃衬底）
+- 扩展路线：材料参数（n/ρ/γ）入特征、更多体系、逆向设计（目标性能 → 厚度）

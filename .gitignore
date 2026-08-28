@@ -224,3 +224,6 @@ __marimo__/
 # 对标报告派生产物（可随时重新生成）
 docs/benchmarks/*_report.json
 docs/benchmarks/*_report.png
+
+# NN 代理模型产物（可重新训练）
+engine/artifacts/

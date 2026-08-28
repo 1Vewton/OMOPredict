@@ -8,6 +8,7 @@ dependencies = [
     "matplotlib>=3.11.1",
     "numpy>=2.5.2",
     "scipy>=1.18.1",
+    "torch>=2.13.0",
 ]
 
 [project.scripts]
@@ -25,6 +26,15 @@ dev = [
 
 [tool.uv]
 python-preference = "managed"
+
+# PyTorch CPU 版（不含 CUDA 依赖，体积小）
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
