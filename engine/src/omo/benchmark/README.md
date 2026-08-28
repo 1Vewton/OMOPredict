@@ -1,4 +1,4 @@
-# omo.benchmark —— 文献对标与误差评估（M2 框架已实现）
+# omo.benchmark —— 文献对标与误差评估（M2 完成）
 
 ## 职责
 
@@ -6,7 +6,7 @@
 
 - 加载 `docs/benchmarks/` 下的文献数据集（含来源、DOI、提取条件）
 - 自动运行仿真 vs 实测，输出 MAE / RMSE / 相对误差报告与可视化对比图
-- 支持模型常数校准闭环：仿真 — 实测 — 校准（M2.3）
+- 模型常数校准闭环：仿真 — 实测 — 校准（灵敏度分析 → 拟合 → 留出法验证）
 
 ## 已实现模块
 
@@ -16,7 +16,8 @@
 | `materials.py` | 材料名 → 引擎输入（光学 + 电学）；`MaterialResolver` 支持数据集覆盖（校准产物） |
 | `runner.py` | `simulate_record`：按 measured 声明的量分发到 optics/electrical/emi |
 | `metrics.py` | `compute_metrics`：MAE / RMSE / 最大绝对误差 / 相对 MAE |
-| `report.py` | `run_benchmark`：按量聚合 + 逐记录明细；JSON 输出 + 实测 vs 仿真散点图（PNG） |
+| `report.py` | `run_benchmark`：按量聚合 + 逐记录明细 + 记录子集过滤（留出法）；JSON + 散点图 |
+| `calibrate.py` | `sensitivity_analysis` / `calibrate`：灵敏度筛选 → L-BFGS-B 拟合 → 训练/验证误差对比 |
 
 ## 如何调用
 
@@ -33,8 +34,25 @@ report.save_json("report.json")
 report.plot("report.png")    # 实测 vs 仿真散点图
 ```
 
+### 模型校准（M2.3）
+
+```python
+from omo.benchmark import CalibrationConstant, calibrate, sensitivity_analysis
+
+sens = sensitivity_analysis(datasets, candidates)   # 灵敏度排序，选 1–3 个
+result = calibrate(datasets, top_constants,
+                   train_record_ids=train, val_record_ids=val)  # 留出法
+result.fitted          # {"Ag_bulk_resistivity": 2.6e-08, ...}
+result.before_val      # 验证集校准前误差
+result.after_val       # 验证集校准后误差
+result.save_json("calibration_report.json")
+```
+
+校准纪律与结果解读见 `docs/benchmarks/calibration.md`。
+
 方阻在 **log₁₀ 空间**评估（跨数量级）；透过率/反射率/SE 用绝对值。
 支持记录缺项：只有 Rs 的记录不会触发光学/屏蔽仿真。
+`run_benchmark(..., record_ids=...)` 可限定记录子集（校准留出法用）。
 
 ## 数据集格式
 

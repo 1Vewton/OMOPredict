@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from collections import defaultdict
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -70,11 +71,54 @@ class BenchmarkReport:
         plot_report(self, path)
 
 
+def collect_samples(
+    dataset: BenchmarkDataset,
+    resolver: MaterialResolver,
+    record_ids: Collection[str] | None = None,
+    *,
+    substrate_index: float | None = None,
+) -> dict[str, list[tuple[float, float]]]:
+    """收集 (仿真, 实测) 样本对（按量），可限定记录子集。
+
+    方阻在 log₁₀ 空间；透过率/反射率/SE 用绝对值（与 run_benchmark 一致）。
+    供 run_benchmark 与 calibrate.py 复用。
+    """
+    if substrate_index is None:
+        substrate_index = dataset.meta.substrate.index
+    samples: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    for rec in dataset.records:
+        if record_ids is not None and rec.id not in record_ids:
+            continue
+        sim = simulate_record(rec, resolver, substrate_index=substrate_index)
+        if rec.measured.transmittance:
+            samples["transmittance"].extend(
+                (s.value, m.value)
+                for s, m in zip(sim.transmittance, rec.measured.transmittance, strict=True)
+            )
+        if rec.measured.reflectance:
+            samples["reflectance"].extend(
+                (s.value, m.value)
+                for s, m in zip(sim.reflectance, rec.measured.reflectance, strict=True)
+            )
+        if rec.measured.sheet_resistance is not None and sim.sheet_resistance is not None:
+            samples["sheet_resistance_log10"].append(
+                (math.log10(sim.sheet_resistance), math.log10(rec.measured.sheet_resistance))
+            )
+        if rec.measured.se:
+            samples["se"].extend(
+                (s.value, m.value) for s, m in zip(sim.se, rec.measured.se, strict=True)
+            )
+        if rec.measured.se_x_band is not None and sim.se_x_band is not None:
+            samples["se_x_band"].append((sim.se_x_band, rec.measured.se_x_band))
+    return samples
+
+
 def run_benchmark(
     dataset: BenchmarkDataset,
     *,
     substrate_index: float | None = None,
     resolver: MaterialResolver | None = None,
+    record_ids: Collection[str] | None = None,
 ) -> BenchmarkReport:
     """运行整份数据集的对标：逐记录仿真 → 按量聚合误差。
 
@@ -84,6 +128,7 @@ def run_benchmark(
         dataset: 已加载的数据集
         substrate_index: 光学衬底折射率；None 时取数据集 meta.substrate.index
         resolver: 材料解析器（默认按 dataset.simulation 构造）
+        record_ids: 仅对标这些记录（校准的留出法验证用）；None = 全部
 
     返回:
         BenchmarkReport（quantities 为各量聚合指标，records 为逐记录明细）
@@ -91,43 +136,16 @@ def run_benchmark(
     resolver = resolver or MaterialResolver(dataset.simulation)
     if substrate_index is None:
         substrate_index = dataset.meta.substrate.index
-    samples: dict[str, list[tuple[float, float]]] = defaultdict(list)
+
+    samples = collect_samples(dataset, resolver, record_ids, substrate_index=substrate_index)
     record_errors: list[RecordError] = []
-
     for rec in dataset.records:
-        sim = simulate_record(rec, resolver, substrate_index=substrate_index)
-        errs: dict[str, float] = {}
-
-        if rec.measured.transmittance:
-            pairs = [
-                (s.value, m.value)
-                for s, m in zip(sim.transmittance, rec.measured.transmittance, strict=True)
-            ]
-            samples["transmittance"].extend(pairs)
-            errs["transmittance"] = _mean_abs_error(pairs)
-        if rec.measured.reflectance:
-            pairs = [
-                (s.value, m.value)
-                for s, m in zip(sim.reflectance, rec.measured.reflectance, strict=True)
-            ]
-            samples["reflectance"].extend(pairs)
-            errs["reflectance"] = _mean_abs_error(pairs)
-        if rec.measured.sheet_resistance is not None and sim.sheet_resistance is not None:
-            pair = (
-                math.log10(sim.sheet_resistance),
-                math.log10(rec.measured.sheet_resistance),
-            )
-            samples["sheet_resistance_log10"].append(pair)
-            errs["sheet_resistance"] = abs(pair[0] - pair[1])
-        if rec.measured.se:
-            pairs = [(s.value, m.value) for s, m in zip(sim.se, rec.measured.se, strict=True)]
-            samples["se"].extend(pairs)
-            errs["se"] = _mean_abs_error(pairs)
-        if rec.measured.se_x_band is not None and sim.se_x_band is not None:
-            pair = (sim.se_x_band, rec.measured.se_x_band)
-            samples["se_x_band"].append(pair)
-            errs["se_x_band"] = abs(pair[0] - pair[1])
-
+        if record_ids is not None and rec.id not in record_ids:
+            continue
+        per_record = collect_samples(
+            dataset, resolver, {rec.id}, substrate_index=substrate_index
+        )
+        errs = {name: _mean_abs_error(pairs) for name, pairs in per_record.items()}
         record_errors.append(RecordError(record_id=rec.id, errors=errs))
 
     quantities = {

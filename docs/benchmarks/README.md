@@ -54,3 +54,10 @@
 | `wo3x_ag_wo3x_lim2020.json` | WO₃₋ₓ/Ag/WO₃₋ₓ | Lim & Kim 2020, Sci. Rep. 10, DOI 10.1038/s41598-020-65260-1 | 4（Rs）+1（T） | ✅ 已入库 |
 
 生成的对标报告（`*_report.json` / `*_report.png`）为派生产物，已 gitignore；随时可用 `omo.benchmark.run_benchmark` 重新生成。
+
+## 模型校准（M2.3）
+
+方法、结果与解读见 **`calibration.md`**。要点：
+- 灵敏度分析 → 拟合最敏感常数（Ag ρ / λ、ITO n）→ 留出法验证
+- 校准产物是**模型有效参数**（覆盖段），不改写物理块体值
+- 薄 Ag 渗流效应超出 FS 模型——标记为模型边界，不强行拟合
