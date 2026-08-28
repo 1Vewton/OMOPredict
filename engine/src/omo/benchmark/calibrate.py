@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
@@ -322,7 +323,6 @@ def calibrate(
     weights = weights or _LOSS_WEIGHTS
     base_overrides = _merged_dataset_overrides(datasets)
     base_resolver = MaterialResolver(base_overrides)
-    names = [c.name for c in constants]
     x0 = np.array([_initial_value(c, base_resolver) for c in constants], dtype=float)
     bounds = [c.bounds for c in constants]
     if np.any(x0 < [b[0] for b in bounds]) or np.any(x0 > [b[1] for b in bounds]):
@@ -332,21 +332,35 @@ def calibrate(
         datasets, constants, record_ids=train_record_ids, weights=weights
     )
 
-    def loss(x: np.ndarray) -> float:
+    # 对数空间优化：不同常数的物理尺度差异巨大（如 Ag ρ ≈ 1e-8 与 λ ≈ 50），
+    # 直接优化原始值会使有限差分梯度步长（按参数幅值缩放）退化为浮点噪声，
+    # 导致 L-BFGS-B 在不同 BLAS/平台下异常终止（ABNORMAL）。log₁₀ 变换使
+    # 各维度尺度均匀，并天然保证拟合值 > 0。
+    x0_log = np.log10(x0)
+    bounds_log = [(math.log10(b[0]), math.log10(b[1])) for b in bounds]
+
+    def loss_log(x_log: np.ndarray) -> float:
+        values = {
+            c.name: 10.0 ** v for c, v in zip(constants, x_log, strict=True)
+        }
         return _loss(
-            dict(zip(names, x, strict=True)),
-            datasets,
-            train_record_ids,
-            constants,
-            weights,
-            base_overrides,
+            values, datasets, train_record_ids, constants, weights, base_overrides
         )
 
-    result = minimize(loss, x0, method="L-BFGS-B", bounds=bounds, options={"maxiter": maxiter})
+    result = minimize(
+        loss_log,
+        x0_log,
+        method="L-BFGS-B",
+        bounds=bounds_log,
+        options={"maxiter": maxiter},
+    )
     if not result.success:
         raise RuntimeError(f"校准优化失败：{result.message}")
 
-    fitted = {c.name: float(v) for c, v in zip(constants, result.x, strict=True)}
+    # 钳制回物理边界（log₁₀ 往返可能有 1 ulp 舍入越界）
+    fitted: dict[str, float] = {}
+    for c, v, (lo, hi) in zip(constants, result.x, bounds, strict=True):
+        fitted[c.name] = min(max(10.0 ** float(v), lo), hi)
     base_res = MaterialResolver(base_overrides)
     fitted_overrides = merge_overrides(
         base_overrides, build_overrides(constants, fitted, base_resolver)
