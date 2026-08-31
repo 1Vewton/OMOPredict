@@ -230,3 +230,7 @@ engine/artifacts/
 
 # Go 中间层本地产物
 server/*.db
+
+# Go 中间层配置与本地库
+server/.env
+server/*.db

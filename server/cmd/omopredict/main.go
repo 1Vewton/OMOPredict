@@ -16,17 +16,21 @@ import (
 	"time"
 
 	"github.com/1Vewton/OMOPredict/server/internal/api"
+	"github.com/1Vewton/OMOPredict/server/internal/store"
 	"github.com/1Vewton/OMOPredict/server/internal/user"
 )
 
 func main() {
-	store, err := user.OpenSQLiteStore(dbPath())
+	cfg := store.LoadConfig()
+	db, err := store.Open(cfg)
 	if err != nil {
 		log.Fatalf("open store: %v", err)
 	}
-	defer store.Close()
+	if err := store.Migrate(db, &user.User{}); err != nil {
+		log.Fatalf("migrate: %v", err)
+	}
 
-	svc := user.NewService(store, jwtSecret(), jwtTTL())
+	svc := user.NewService(user.NewGORMStore(db), jwtSecret(), jwtTTL())
 
 	addr := os.Getenv("OMO_SERVER_ADDR")
 	if addr == "" {
@@ -54,14 +58,6 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
-}
-
-// dbPath SQLite 数据库路径（默认工作目录下 omopredict.db）。
-func dbPath() string {
-	if p := os.Getenv("OMO_DB_PATH"); p != "" {
-		return p
-	}
-	return "omopredict.db"
 }
 
 // jwtSecret JWT 签名密钥；生产环境必须通过 OMO_JWT_SECRET 设置。

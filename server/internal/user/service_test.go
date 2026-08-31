@@ -7,17 +7,28 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1Vewton/OMOPredict/server/internal/store"
 	"golang.org/x/crypto/bcrypt"
 )
 
-func newTestStore(t *testing.T) *SQLiteStore {
+func newTestStore(t *testing.T) *GORMStore {
 	t.Helper()
-	store, err := OpenSQLiteStore(filepath.Join(t.TempDir(), "test.db"))
+	db, err := store.Open(store.Config{
+		Driver: store.DriverSQLite,
+		DSN:    filepath.Join(t.TempDir(), "test.db"),
+	})
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
-	return store
+	if err := store.Migrate(db, &User{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, cerr := db.DB(); cerr == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	return NewGORMStore(db)
 }
 
 func newTestService(t *testing.T) *Service {

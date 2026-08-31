@@ -9,18 +9,29 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1Vewton/OMOPredict/server/internal/store"
 	"github.com/1Vewton/OMOPredict/server/internal/user"
 )
 
-// newTestService 用临时 SQLite 库构造用户服务。
+// newTestService 用临时 SQLite 库（GORM）构造用户服务。
 func newTestService(t *testing.T) *user.Service {
 	t.Helper()
-	store, err := user.OpenSQLiteStore(filepath.Join(t.TempDir(), "test.db"))
+	db, err := store.Open(store.Config{
+		Driver: store.DriverSQLite,
+		DSN:    filepath.Join(t.TempDir(), "test.db"),
+	})
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
-	return user.NewService(store, []byte("test-secret"), time.Hour)
+	if err := store.Migrate(db, &user.User{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, cerr := db.DB(); cerr == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	return user.NewService(user.NewGORMStore(db), []byte("test-secret"), time.Hour)
 }
 
 func doJSON(t *testing.T, r *http.Request) *httptest.ResponseRecorder {

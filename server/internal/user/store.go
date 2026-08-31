@@ -4,14 +4,11 @@ package user
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
-	"time"
 
-	_ "modernc.org/sqlite"
+	"gorm.io/gorm"
 )
 
 // 存储错误哨兵。
@@ -28,40 +25,29 @@ type Store interface {
 	Close() error
 }
 
-// SQLiteStore 基于 SQLite 的用户存储（纯 Go 驱动 modernc.org/sqlite）。
-type SQLiteStore struct {
-	db *sql.DB
+// GORMStore 基于 GORM 的用户存储（兼容 sqlite / mysql / postgres）。
+type GORMStore struct {
+	db *gorm.DB
 }
 
-// OpenSQLiteStore 打开（不存在则创建）SQLite 数据库并建表。
-func OpenSQLiteStore(path string) (*SQLiteStore, error) {
-	db, err := sql.Open("sqlite", path)
+// NewGORMStore 构造 GORM 用户存储。
+func NewGORMStore(db *gorm.DB) *GORMStore {
+	return &GORMStore{db: db}
+}
+
+// Close 关闭底层数据库连接。
+func (s *GORMStore) Close() error {
+	sqlDB, err := s.db.DB()
 	if err != nil {
-		return nil, fmt.Errorf("user: open sqlite: %w", err)
+		return fmt.Errorf("user: get sql db: %w", err)
 	}
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS users (
-			id            TEXT PRIMARY KEY,
-			username      TEXT NOT NULL UNIQUE,
-			password_hash TEXT NOT NULL,
-			created_at    INTEGER NOT NULL
-		)`); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("user: create table: %w", err)
-	}
-	return &SQLiteStore{db: db}, nil
+	return sqlDB.Close()
 }
-
-// Close 关闭数据库。
-func (s *SQLiteStore) Close() error { return s.db.Close() }
 
 // Create 插入用户；用户名重复返回 ErrUserExists。
-func (s *SQLiteStore) Create(ctx context.Context, u *User) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)`,
-		u.ID, u.Username, u.PasswordHash, u.CreatedAt.Unix())
-	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+func (s *GORMStore) Create(ctx context.Context, u *User) error {
+	if err := s.db.WithContext(ctx).Create(u).Error; err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
 			return ErrUserExists
 		}
 		return fmt.Errorf("user: create: %w", err)
@@ -70,28 +56,24 @@ func (s *SQLiteStore) Create(ctx context.Context, u *User) error {
 }
 
 // GetByID 按 ID 查询；不存在返回 ErrNotFound。
-func (s *SQLiteStore) GetByID(ctx context.Context, id string) (*User, error) {
-	return s.scanOne(s.db.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, created_at FROM users WHERE id = ?`, id))
+func (s *GORMStore) GetByID(ctx context.Context, id string) (*User, error) {
+	return s.get(ctx, "id = ?", id)
 }
 
 // GetByUsername 按用户名查询；不存在返回 ErrNotFound。
-func (s *SQLiteStore) GetByUsername(ctx context.Context, username string) (*User, error) {
-	return s.scanOne(s.db.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, created_at FROM users WHERE username = ?`, username))
+func (s *GORMStore) GetByUsername(ctx context.Context, username string) (*User, error) {
+	return s.get(ctx, "username = ?", username)
 }
 
-func (s *SQLiteStore) scanOne(row *sql.Row) (*User, error) {
+func (s *GORMStore) get(ctx context.Context, query string, arg any) (*User, error) {
 	var u User
-	var created int64
-	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &created)
-	if errors.Is(err, sql.ErrNoRows) {
+	err := s.db.WithContext(ctx).Where(query, arg).First(&u).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("user: scan: %w", err)
+		return nil, fmt.Errorf("user: get: %w", err)
 	}
-	u.CreatedAt = time.Unix(created, 0)
 	return &u, nil
 }
 
