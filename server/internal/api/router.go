@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/1Vewton/OMOPredict/server/internal/task"
 	"github.com/1Vewton/OMOPredict/server/internal/user"
 )
 
@@ -18,7 +19,7 @@ import (
 var version = "0.1.0"
 
 // NewRouter 组装全部路由（Go 1.22+ 方法化模式）。
-func NewRouter(svc *user.Service) http.Handler {
+func NewRouter(svc *user.Service, tasks *task.Service) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /version", handleVersion)
@@ -26,6 +27,11 @@ func NewRouter(svc *user.Service) http.Handler {
 	mux.HandleFunc("POST /api/auth/register", registerHandler(svc))
 	mux.HandleFunc("POST /api/auth/login", loginHandler(svc))
 	mux.Handle("GET /api/auth/me", authMiddleware(svc)(meHandler(svc)))
+
+	auth := authMiddleware(svc)
+	mux.Handle("POST /api/tasks", auth(createTaskHandler(tasks)))
+	mux.Handle("GET /api/tasks", auth(listTasksHandler(tasks)))
+	mux.Handle("GET /api/tasks/{id}", auth(getTaskHandler(tasks)))
 	return withMiddleware(mux)
 }
 

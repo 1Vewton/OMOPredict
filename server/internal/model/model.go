@@ -28,21 +28,23 @@ const (
 	TaskFailed    TaskStatus = "failed"
 )
 
-// SimulationTask 仿真任务。
+// SimulationTask 仿真任务（GORM 模型；Stack/Result 以 JSON 序列化存储）。
 type SimulationTask struct {
-	ID        string     `json:"id"`
-	UserID    string     `json:"user_id"`
-	Stack     FilmStack  `json:"stack"`
-	Status    TaskStatus `json:"status"`
-	CreatedAt int64      `json:"created_at"` // unix 秒
-	UpdatedAt int64      `json:"updated_at"`
-	Error     string     `json:"error,omitempty"`
+	ID        string      `gorm:"primaryKey" json:"id"`
+	UserID    string      `gorm:"index" json:"user_id"`
+	Stack     FilmStack   `gorm:"serializer:json" json:"stack"`
+	Status    TaskStatus  `json:"status"`
+	CreatedAt int64       `json:"created_at"` // unix 秒
+	UpdatedAt int64       `json:"updated_at"`
+	Error     string      `json:"error,omitempty"`
+	Result    *TaskResult `gorm:"serializer:json" json:"result,omitempty"`
 }
 
 // TaskResult 仿真结果（对齐 Python 引擎输出）。
 type TaskResult struct {
 	TaskID          string          `json:"task_id"`
 	Transmittance   []SpectrumPoint `json:"transmittance,omitempty"`
+	Reflectance     []SpectrumPoint `json:"reflectance,omitempty"`
 	SheetResistance *float64        `json:"sheet_resistance,omitempty"` // Ω/sq
 	SEDB            []SpectrumPoint `json:"se_db,omitempty"`            // dB
 }

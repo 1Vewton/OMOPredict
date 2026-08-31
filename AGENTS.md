@@ -111,12 +111,12 @@ OMOPredict/
 │   │   ├── api/               # FastAPI 服务（M3 完成：/simulate + /health）
 │   │   └── cli/               # 命令行入口（omo-cli，M1 起可用）
 │   └── tests/                 # 单元测试 + 文献基准测试
-├── server/                    # ── Go 中间层 ──（M3 进行中：骨架 + CI + /health + 数据模型完成）
+├── server/                    # ── Go 中间层 ──（M3 完成：用户/存储/任务编排，端到端打通）
 │   ├── cmd/omopredict/        # 主程序入口（HTTP 服务，优雅退出）
 │   ├── internal/
 │   │   ├── user/              # 用户注册/登录 + JWT（GORM：sqlite/mysql/postgres + bcrypt）
 │   │   ├── model/             # 数据模型（膜结构、任务、结果）—— snake_case JSON
-│   │   ├── task/              # 仿真任务编排（调 Python，实现中）
+│   │   ├── task/              # 任务编排（M3 完成：异步执行 + 调 Python 引擎）
 │   │   └── api/               # REST 路由与中间件（/health、/version）
 │   └── go.mod
 └── frontend/                  # ── Vue 3 + TS 前端 ──
@@ -128,10 +128,10 @@ OMOPredict/
         └── stores/            # Pinia 状态
 ```
 
-> 当前仓库处于 **M3 阶段（进行中）**：Python omo.api（/simulate）完成；Go 用户系统
-> （注册/登录/JWT）完成，存储重构为 **GORM**（兼容 sqlite/mysql/postgres），配置走
-> `server/.env`（OMO_DB_DRIVER / OMO_DB_DSN，模板 .env.example）。剩余：任务存储与
-> 编排（调 Python 引擎）、REST API 完整化。
+> 当前仓库处于 **M3 阶段（已完成）**：Python omo.api（/simulate）、Go 用户系统
+> （JWT + GORM 多库 + .env 配置）、任务编排（异步执行 → 调 Python 引擎 → 结果持久化）
+> 全部落地，端到端冒烟通过（Go → uvicorn → T/Rs/SE 回传）；API 契约见 docs/api/。
+> 下一步 M4（Vue 前端）。
 
 ---
 
@@ -148,7 +148,7 @@ OMOPredict/
 | **M5** | 优化与工艺指导 | 参数优化、灵敏度分析、报告导出 |
 | **M6** | 集成与打磨 | 端到端联调、文档完善、示例数据与演示 |
 
-**当前进度**：M3（进行中）——Python omo.api + Go 用户系统（GORM 多库 + .env 配置）完成；任务存储与编排（调 Python）进行中。
+**当前进度**：M3 ✅ 完成（用户系统 + GORM 存储 + 任务编排端到端打通）；下一步 M4（Vue 前端）。
 
 **阶段完成标准**：每个里程碑必须有可运行的代码 + 测试通过 + 文档更新，不允许"只写代码不验证"。
 
@@ -217,4 +217,4 @@ cd frontend && pnpm dev
 
 ---
 
-*最后更新：M3 进行中。每次架构或物理模型变更时，记得同步更新本文件。*
+*最后更新：M3 完成。每次架构或物理模型变更时，记得同步更新本文件。*

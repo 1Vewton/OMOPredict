@@ -58,6 +58,62 @@
 | `200` | `{"id":"...","username":"alice"}` |
 | `401` | 缺少 / 非法 / 已过期 token |
 
+## 仿真任务（需认证）
+
+### `POST /api/tasks` — 创建任务（异步执行，立即返回 202）
+
+请求：
+
+```json
+{
+  "name": "ITO-Ag-ITO",
+  "layers": [
+    {"material": "ITO", "thickness_nm": 40},
+    {"material": "Ag",  "thickness_nm": 10},
+    {"material": "ITO", "thickness_nm": 40}
+  ],
+  "substrate_index": 1.5
+}
+```
+
+| 状态码 | 含义 |
+|---|---|
+| `202` | 已接受：任务创建（pending），异步执行中 → `{"id":"<32位hex>","status":"pending",...}` |
+| `400` | `layers` 为空或 JSON 非法 |
+| `401` | 未认证 |
+
+### `GET /api/tasks/{id}` — 查询任务状态与结果（仅本人）
+
+任务状态机：`pending → running → succeeded | failed`。
+
+| 状态码 | 含义 |
+|---|---|
+| `200` | 任务（`succeeded` 时含 `result`：`transmittance` / `reflectance` / `sheet_resistance` / `se_db`） |
+| `404` | 任务不存在或非本人（统一 404，不泄露存在性） |
+| `401` | 未认证 |
+
+### `GET /api/tasks` — 列出当前用户任务（新建在前）
+
+```json
+200 {"tasks": [{"id":"...","status":"succeeded",...}, ...]}
+```
+
+### 任务 curl 演示
+
+```bash
+# 创建任务（异步）
+CREATE=$(curl -s -X POST http://127.0.0.1:8080/api/tasks \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"layers":[{"material":"ITO","thickness_nm":40},{"material":"Ag","thickness_nm":10},{"material":"ITO","thickness_nm":40}]}')
+TASK_ID=$(echo "$CREATE" | jq -r .id)
+
+# 轮询结果
+curl -s http://127.0.0.1:8080/api/tasks/$TASK_ID -H "Authorization: Bearer $TOKEN" | jq
+```
+
+> 任务执行由 Go 服务异步调用 Python 引擎（`omo.api /simulate`，契约见
+> [`engine.md`](engine.md)）；引擎地址通过 `OMO_ENGINE_URL` 配置。
+
 ## curl 演示
 
 ```bash

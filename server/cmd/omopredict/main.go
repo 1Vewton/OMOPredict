@@ -16,7 +16,9 @@ import (
 	"time"
 
 	"github.com/1Vewton/OMOPredict/server/internal/api"
+	"github.com/1Vewton/OMOPredict/server/internal/model"
 	"github.com/1Vewton/OMOPredict/server/internal/store"
+	"github.com/1Vewton/OMOPredict/server/internal/task"
 	"github.com/1Vewton/OMOPredict/server/internal/user"
 )
 
@@ -32,11 +34,13 @@ func main() {
 			log.Printf("close store: %v", err)
 		}
 	}()
-	if err := store.Migrate(db, &user.User{}); err != nil {
+	if err := store.Migrate(db, &user.User{}, &model.SimulationTask{}); err != nil {
 		log.Fatalf("migrate: %v", err)
 	}
 
-	svc := user.NewService(user.NewGORMStore(db), jwtSecret(), jwtTTL())
+	userSvc := user.NewService(user.NewGORMStore(db), jwtSecret(), jwtTTL())
+	engine := task.NewEngineClient(engineURL())
+	taskSvc := task.NewService(task.NewGORMStore(db), engine)
 
 	addr := os.Getenv("OMO_SERVER_ADDR")
 	if addr == "" {
@@ -44,7 +48,7 @@ func main() {
 	}
 	srv := &http.Server{
 		Addr:         addr,
-		Handler:      api.NewRouter(svc),
+		Handler:      api.NewRouter(userSvc, taskSvc),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
@@ -83,4 +87,12 @@ func jwtTTL() time.Duration {
 		}
 	}
 	return 24 * time.Hour
+}
+
+// engineURL Python 引擎地址（默认本机 8000 端口，配合 uvicorn 启动）。
+func engineURL() string {
+	if v := os.Getenv("OMO_ENGINE_URL"); v != "" {
+		return v
+	}
+	return "http://127.0.0.1:8000"
 }

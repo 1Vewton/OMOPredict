@@ -24,6 +24,9 @@ server/
 | POST | `/api/auth/register` | 注册（username 3-32 位 [a-zA-Z0-9_]，密码 ≥8 位） |
 | POST | `/api/auth/login` | 登录，返回 `{token, user}`（JWT HS256） |
 | GET | `/api/auth/me` | 当前用户（需 `Authorization: Bearer <token>`） |
+| POST | `/api/tasks` | 创建仿真任务（**异步**执行，返回 202；Go 调 Python 引擎） |
+| GET | `/api/tasks` | 列出当前用户任务（新建在前） |
+| GET | `/api/tasks/{id}` | 查询任务状态与结果（仅本人，异步轮询） |
 
 > 完整的请求/响应示例、错误码与 curl 演示见 **`docs/api/rest.md`**；
 > Go → Python 引擎契约见 **`docs/api/engine.md`**。
@@ -40,6 +43,7 @@ server/
 | `OMO_SERVER_ADDR` | `:8080` | 监听地址 |
 | `OMO_JWT_SECRET` | 开发默认值（**生产必须设置**） | JWT 签名密钥 |
 | `OMO_JWT_TTL` | `24h` | 令牌有效期（Go duration 格式） |
+| `OMO_ENGINE_URL` | `http://127.0.0.1:8000` | Python 引擎地址（任务编排调用 /simulate） |
 
 存储基于 **GORM**（`gorm.io/gorm`）：SQLite 用纯 Go 驱动（`glebarez/sqlite`，兼容
 CGO_ENABLED=0 环境），MySQL / PostgreSQL 切换 `OMO_DB_DRIVER` + DSN 即可，
@@ -64,10 +68,11 @@ go run ./cmd/omopredict   # 启动（默认 :8080，读取 .env）
   `omo.api`（FastAPI，M3 接入）；
 - 前端只与本服务通信；JSON 字段 snake_case，与 Python 引擎契约一致。
 
-## 当前状态（M3 进行中）
+## 当前状态（M3 ✅ 完成）
 
 - ✅ 骨架与 CI（Go job：gofmt / vet / build / test）
 - ✅ 健康检查 `/health`、`/version`、中间件（日志 + panic 兜底）
 - ✅ 数据模型（FilmStack / SimulationTask / TaskResult）
 - ✅ 用户系统：注册 / 登录 / JWT 认证（GORM 存储，兼容 sqlite/mysql/postgres，.env 配置）
-- ⏳ 任务编排（调 Python 引擎）与任务存储——进行中
+- ✅ 任务编排：POST /api/tasks 异步执行 → 调 Python 引擎 /simulate → 状态/结果持久化；
+  端到端冒烟通过（Go → uvicorn 引擎 → T/Rs/SE 回传）
