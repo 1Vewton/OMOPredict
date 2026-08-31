@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/1Vewton/OMOPredict/server/internal/store"
 	"gorm.io/gorm"
 )
 
@@ -35,13 +36,9 @@ func NewGORMStore(db *gorm.DB) *GORMStore {
 	return &GORMStore{db: db}
 }
 
-// Close 关闭底层数据库连接。
+// Close 关闭底层数据库连接池（见 store.Close 的注释：池不会自动关闭）。
 func (s *GORMStore) Close() error {
-	sqlDB, err := s.db.DB()
-	if err != nil {
-		return fmt.Errorf("user: get sql db: %w", err)
-	}
-	return sqlDB.Close()
+	return store.Close(s.db)
 }
 
 // Create 插入用户；用户名重复返回 ErrUserExists。

@@ -79,3 +79,15 @@ func Open(cfg Config) (*gorm.DB, error) {
 func Migrate(db *gorm.DB, models ...any) error {
 	return db.AutoMigrate(models...)
 }
+
+// Close 关闭底层数据库连接池。
+//
+// 注意：database/sql 的连接池不会自动关闭——池的生命周期等于 *sql.DB
+// 对象本身，必须显式 Close（查询连接只是归还池，池仍持有文件句柄）。
+func Close(db *gorm.DB) error {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("store: get sql db: %w", err)
+	}
+	return sqlDB.Close()
+}

@@ -26,6 +26,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("open store: %v", err)
 	}
+	// 连接池生命周期 = *sql.DB 生命周期：必须显式关闭（查询连接才会自动归还池）
+	defer func() {
+		if err := store.Close(db); err != nil {
+			log.Printf("close store: %v", err)
+		}
+	}()
 	if err := store.Migrate(db, &user.User{}); err != nil {
 		log.Fatalf("migrate: %v", err)
 	}
