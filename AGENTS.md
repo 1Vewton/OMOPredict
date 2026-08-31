@@ -92,6 +92,7 @@ OMOPredict/
 ├── LICENSE
 ├── .gitignore
 ├── docs/
+│   ├── HANDOVER.md             # 交接报告（续接工作必读：状态/环境坑/M4 计划）
 │   ├── physics/               # 物理模型文档（TMM、Drude、屏蔽理论）
 │   ├── benchmarks/            # 文献对标数据集与来源（含 DOI）
 │   └── api/                   # API 契约：对外 REST（rest.md）+ 引擎契约（engine.md）

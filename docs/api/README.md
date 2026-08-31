@@ -32,4 +32,4 @@ OMOPredict 三层架构的接口契约文档：
 | `OMO_DB_DSN` | `omopredict.db` | 数据库连接串 |
 | `OMO_JWT_SECRET` | 开发默认（生产必须设置） | JWT 签名密钥 |
 | `OMO_JWT_TTL` | `24h` | 令牌有效期 |
-| `OMO_ENGINE_URL` | `http://127.0.0.1:8000` | Python 引擎地址（任务编排用，规划中） |
+| `OMO_ENGINE_URL` | `http://127.0.0.1:8000` | Python 引擎地址（任务编排调用 /simulate） |
