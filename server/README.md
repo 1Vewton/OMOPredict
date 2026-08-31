@@ -25,6 +25,9 @@ server/
 | POST | `/api/auth/login` | 登录，返回 `{token, user}`（JWT HS256） |
 | GET | `/api/auth/me` | 当前用户（需 `Authorization: Bearer <token>`） |
 
+> 完整的请求/响应示例、错误码与 curl 演示见 **`docs/api/rest.md`**；
+> Go → Python 引擎契约见 **`docs/api/engine.md`**。
+
 ## 配置（.env 或环境变量）
 
 配置写在 `server/.env`（模板见 `.env.example`，已 gitignore）或环境变量；

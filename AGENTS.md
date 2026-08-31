@@ -94,7 +94,7 @@ OMOPredict/
 ├── docs/
 │   ├── physics/               # 物理模型文档（TMM、Drude、屏蔽理论）
 │   ├── benchmarks/            # 文献对标数据集与来源（含 DOI）
-│   └── api/                   # API 设计与数据契约
+│   └── api/                   # API 契约：对外 REST（rest.md）+ 引擎契约（engine.md）
 ├── engine/                    # ── 数据科学层 ──（uv 项目，脚手架已完成）
 │   ├── pyproject.toml         # 项目元数据 + pytest/ruff 配置（依赖用 uv add 管理）
 │   ├── README.md
