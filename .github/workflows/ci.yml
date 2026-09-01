@@ -1,5 +1,4 @@
-# CI —— Python 数据科学层（M0 起）+ Go 中间层（M3 起）
-# 后续里程碑扩展：M4 加前端（frontend/）
+# CI —— Python 数据科学层（M0 起）+ Go 中间层（M3 起）+ 前端（M4 起）
 name: CI
 
 on:
@@ -66,3 +65,31 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+  frontend:
+    name: Frontend (lint + type-check + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type-check & build
+        run: pnpm build
