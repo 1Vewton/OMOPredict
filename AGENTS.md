@@ -120,19 +120,27 @@ OMOPredict/
 │   │   ├── task/              # 任务编排（M3 完成：异步执行 + 调 Python 引擎）
 │   │   └── api/               # REST 路由与中间件（/health、/version）
 │   └── go.mod
-└── frontend/                  # ── Vue 3 + TS 前端 ──
-    ├── package.json
+└── frontend/                  # ── Vue 3 + TS 前端 ──（M4 完成）
+    ├── package.json           # pnpm 工程（pnpm-lock.yaml / pnpm-workspace.yaml）
+    ├── vite.config.ts         # /api 代理到 Go :8080（开发期规避 CORS，OMO_SERVER_URL 可覆盖）
+    ├── tsconfig{,.app,.node}.json / eslint.config.js / .prettierrc.json
+    ├── index.html / public/
     └── src/
-        ├── views/             # 页面（参数设计、结果、对标、历史）
-        ├── components/        # 图表（ECharts）、表单等组件
-        ├── api/               # HTTP 客户端封装
-        └── stores/            # Pinia 状态
+        ├── views/             # 页面（Login / Design / TaskDetail / History）
+        ├── components/        # 图表（SpectrumChart / SeChart）、StatusBadge
+        ├── composables/       # useEChart（ECharts 生命周期封装）
+        ├── api/               # HTTP 客户端（JWT/错误统一处理）+ auth/tasks 接口
+        ├── stores/            # Pinia：auth（token/user 持久化）
+        ├── router/            # 路由 + 认证守卫
+        ├── types/             # 与 REST 契约对齐的 TS 类型（snake_case）
+        └── styles/            # 全局样式
 ```
 
-> 当前仓库处于 **M3 阶段（已完成）**：Python omo.api（/simulate）、Go 用户系统
-> （JWT + GORM 多库 + .env 配置）、任务编排（异步执行 → 调 Python 引擎 → 结果持久化）
-> 全部落地，端到端冒烟通过（Go → uvicorn → T/Rs/SE 回传）；API 契约见 docs/api/。
-> 下一步 M4（Vue 前端）。
+> 当前仓库处于 **M4 阶段（已完成）**：Python omo.api（/simulate）、Go 用户系统
+> （JWT + GORM 多库 + .env 配置）、任务编排（异步执行 → 调 Python 引擎 → 结果持久化）、
+> Vue 3 前端（登录/参数设计/结果图表/任务历史）全部落地，端到端冒烟通过
+> （浏览器代理 → Go → uvicorn → T/Rs/SE 回传渲染）；API 契约见 docs/api/。
+> 下一步 M5（优化与工艺指导）。
 
 ---
 
@@ -145,11 +153,11 @@ OMOPredict/
 | **M2** | 文献对标框架 | 首批 benchmark 数据集（≥3 篇文献）、对标报告、模型校准 |
 | **M2.5** | NN 代理模型（Surrogate） | 仿真数据生成管线 + 正向代理 NN（T / Rs / SE），推理加速与精度验收通过 |
 | **M3** | Go 中间层 | 用户系统、膜结构/任务数据模型、任务编排、REST API |
-| **M4** | Vue 前端 | 参数设计页、仿真结果图表、任务历史、对标对比展示 |
+| **M4** | Vue 前端 | 参数设计页、仿真结果图表、任务历史、对标对比展示（**已完成**：登录/注册、膜层设计、ECharts 结果图、任务历史） |
 | **M5** | 优化与工艺指导 | 参数优化、灵敏度分析、报告导出 |
 | **M6** | 集成与打磨 | 端到端联调、文档完善、示例数据与演示 |
 
-**当前进度**：M3 ✅ 完成（用户系统 + GORM 存储 + 任务编排端到端打通）；下一步 M4（Vue 前端）。
+**当前进度**：M4 ✅ 完成（Vue 3 前端：认证 + 参数设计 + ECharts 结果可视化 + 任务历史，经 Vite 代理端到端联调通过）；下一步 M5（优化与工艺指导）。
 
 **阶段完成标准**：每个里程碑必须有可运行的代码 + 测试通过 + 文档更新，不允许"只写代码不验证"。
 
@@ -218,4 +226,4 @@ cd frontend && pnpm dev
 
 ---
 
-*最后更新：M3 完成。每次架构或物理模型变更时，记得同步更新本文件。*
+*最后更新：M4 完成。每次架构或物理模型变更时，记得同步更新本文件。*
