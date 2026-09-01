@@ -1,0 +1,4 @@
+# pnpm 11 配置：esbuild 的原生二进制由 optionalDependencies（@esbuild/win32-x64 等）
+# 提供，postinstall 仅做校验；在受限环境（CI/沙箱）下跳过该构建脚本以保持确定性。
+allowBuilds:
+  esbuild: false
