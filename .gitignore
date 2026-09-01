@@ -221,6 +221,9 @@ __marimo__/
 .uv-cache/
 .uv-python/
 
+# pnpm 本地 store（本环境沙箱把 store 落在工作区）
+.pnpm-store/
+
 # 对标报告派生产物（可随时重新生成）
 docs/benchmarks/*_report.json
 docs/benchmarks/*_report.png
@@ -234,3 +237,7 @@ server/*.db
 # Go 中间层配置与本地库
 server/.env
 server/*.db
+
+# 前端（M4）依赖与构建产物（另有 frontend/.gitignore）
+frontend/node_modules/
+frontend/dist/
