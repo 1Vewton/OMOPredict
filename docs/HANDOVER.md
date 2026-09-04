@@ -21,9 +21,10 @@ OMO（氧化物/金属/氧化物）纳米多层薄膜仿真设计软件：三层
 | M2.5+ | ✅ | FastAPI omo.api（/simulate） | 72 测试 + uvicorn 冒烟 |
 | M3 | ✅ | Go 用户/JWT + GORM 多库 + .env + 任务编排 | Go 全量测试 + **真实端到端冒烟** |
 | M4 | ✅ | Vue3+TS+Vite 前端：登录/注册、参数设计、ECharts 结果图（T/Rs/SE）、任务历史 | vue-tsc + eslint 0 告警 + vite build 通过 + **浏览器代理端到端联调**（值对齐引擎契约示例） |
-| M5/M6 | ⏳ | 优化 / 集成 | 待做 |
+| M5 v1 | ✅ | omo.optimize 目标反推：target（硬约束）/ evaluate（引擎同源求值）/ search（网格扫描+FoM）/ sensitivity（逐层灵敏度+工艺窗口）+ `omo-cli optimize` | 19 测试（含候选回灌自洽）+ ruff 0；默认 4096 组合 ~3 s（含 SE） |
+| M5 余/M6 | ⏳ | 优化 API/前端接入、报告导出、NN 代理加速 / 集成 | 待做 |
 
-测试现状：Python **72 passed / ruff 0**（本机沙箱 4 个 tmp_path 用例报 PermissionError，属环境限制非代码问题）；Go 全量测试通过（api/model/store/user/task）；前端 `pnpm lint` 0 告警 + `vue-tsc -b` + `vite build` 通过。
+测试现状：Python **87 passed / ruff 0**（本机沙箱 4 个 tmp_path 用例报 PermissionError，属环境限制非代码问题）；Go 全量测试通过（api/model/store/user/task）；前端 `pnpm lint` 0 告警 + `vue-tsc -b` + `vite build` 通过。
 
 ## 3. 三层架构与启动
 
@@ -57,8 +58,8 @@ cd frontend && pnpm install && pnpm dev
 | benchmark/ | schema/materials(已迁出)/runner/metrics/report/calibrate |
 | neural/ | data.py（引擎生成数据）、model.py（MLP）、validate.py |
 | api/ | schemas.py / service.py / main.py（FastAPI /simulate） |
-| cli/ | omo-cli（--version/--info；simulate 子命令待做） |
-| optimize/ | 空骨架（M5） |
+| cli/ | omo-cli（--version/--info；**optimize 子命令已实现**；simulate 子命令待做） |
+| optimize/ | **M5 v1 完成**：target.py（DesignTarget 硬约束）/ evaluate.py（CandidateMetrics，引擎同源求值）/ search.py（OmoSearchConfig + 网格扫描 + FoM 排序）/ sensitivity.py（逐层灵敏度 + 工艺窗口） |
 
 **server/internal/**（Go）：api（路由+认证+任务 handler）、user（bcrypt+JWT+GORM）、
 model（FilmStack/SimulationTask/TaskResult）、store（GORM Open/Migrate/.env）、task（engine 客户端+异步编排）。
@@ -120,8 +121,15 @@ model（FilmStack/SimulationTask/TaskResult）、store（GORM Open/Migrate/.env�
   （Rs=3.9708 Ω/sq、T@550nm=0.9745、SE@10GHz=33.70 dB）
 - 注意：Go 服务未配 CORS，生产部署需在反向代理层完成 /api 转发
 
-**M5（优化）**：`omo/optimize/` 实现参数扫描/优化（可用 NN 代理加速）、灵敏度分析、报告导出；
-前端可加"优化模式"入口。
+**M5 v1（引擎层目标反推）—— ✅ 已完成（2026-09）**：
+- `omo/optimize/`：target（硬约束模型）/ evaluate（引擎同源求值）/ search（网格扫描 + FoM 排序 + best_effort）/
+  sensitivity（±1 nm 有限差分灵敏度 + 工艺窗口容差）；报告 `OptimizeReport.to_dict()` 可 JSON 化
+- CLI：`omo-cli optimize --min-t 0.85 --max-rs 12 --min-se 25 [--outer-* --metal-* --json ...]`
+- 验证：19 测试（含 Top 候选回灌物理引擎自洽）+ ruff 0；默认 4096 组合含 SE 约 3 s（无 SE 约束自动跳过屏蔽求值）
+- 快速体验：`uv run omo-cli optimize --min-t 0.85 --max-rs 12 --min-se 25`
+
+**M5 剩余**：优化 API/前端接入（Go 任务类型或引擎 /optimize 端点 + 前端"目标反推"页）、
+报告导出、遗传/贝叶斯寻优、NN 代理加速后端（接口不变）。
 **M6（集成）**：部署（Go 静态托管 frontend/dist + CORS 配置）、示例数据与演示、端到端测试完善。
 
 **其他可做**：`omo-cli simulate` 子命令（M1 计划过）；benchmark 数据集扩充（更多体系）；
@@ -130,7 +138,7 @@ NN 代理 v2（材料参数入特征 / 逆向设计）。
 ## 8. 续接 checklist
 
 1. 读 `AGENTS.md` §6 守则 + 本文件 §6 环境坑
-2. 跑通现有验证：`cd engine && uv run pytest -q`（72 passed）、`cd server && go test ./...`
-3. 若做 M4：按 §7 计划，先建 frontend/ 脚手架（pnpm create vite），再接 API
+2. 跑通现有验证：`cd engine && uv run pytest -q`（87 passed）、`cd server && go test ./...`
+3. 若做 M5 剩余：引擎端到端冒烟先 `uv run omo-cli optimize ...`，再接 API/前端
 4. 改动物理模型时：更新 docs/physics + 重跑 benchmark（守则 §2/§3）
 5. 提交规范：Conventional Commits；每里程碑可运行 + 测试 + 文档

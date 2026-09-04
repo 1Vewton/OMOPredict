@@ -27,13 +27,17 @@
 - ✅ M2.5 NN 代理模型：20k 训练，T/Rs/SE 精度 <0.1%
 - ✅ M3 Go 中间层：JWT 认证 + GORM 多库 + 任务编排（Go→Python 端到端打通）
 - ✅ M4 Vue 前端：登录/注册、膜层参数设计、ECharts 结果图表（T/Rs/SE）、任务历史（Vite 代理联调通过）
-- ⏳ M5 优化 / M6 集成
+- ✅ M5 v1 目标反推（引擎层）：给定性能目标（T/Rs/SE 约束）→ 网格扫描反推膜厚组合 + FoM 排序 + 灵敏度/工艺窗口（`omo-cli optimize`）
+- ⏳ M5 剩余（API/前端接入、报告导出、NN 代理加速）/ M6 集成
 
 ## 快速开始
 
 ```bash
 # 数据科学层（物理引擎 API，默认 :8000）
 cd engine && uv run uvicorn omo.api.main:app --port 8000
+
+# 目标反推（引擎层 CLI，体验 M5 v1）
+cd engine && uv run omo-cli optimize --min-t 0.85 --max-rs 12 --min-se 25
 
 # 中间层（默认 :8080，读取 server/.env；OMO_ENGINE_URL 指向引擎）
 cd server && go run ./cmd/omopredict
