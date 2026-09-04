@@ -95,6 +95,10 @@ model（FilmStack/SimulationTask/TaskResult）、store（GORM Open/Migrate/.env�
    直接优化会在 CI/不同 BLAS 下 ABNORMAL——已在代码注释说明）。
 9. **已知模型边界**：薄 Ag（<10nm）渗流效应超出 FS 模型（Voronin 数据验证集误差显著）；
    Al 光学常数取近似（Palik，待校准）；In₂O₃ 层厚仅在图 3e（未提取，T 对标受限）。
+10. **SE(f) 平线不是 bug**：薄导电膜（d ≪ δ）SE ≈ 20·log₁₀(1+Z₀/2Rs) 与频率无关
+    （Rs 在 1–18 GHz 恒定），真实文献同样平坦（Voronin 2025：25–30 dB 覆盖
+    10 MHz–1 THz）。要看到频率上升需用厚金属层（d ≳ δ 时 SE_A ∝ √f，
+    如 Ag 3µm：92→125 dB）。详见 `docs/physics/emi.md` §4.1（FAQ 说明）。
 10. **npm 源**：本机 npm registry 已是 npmmirror（`npm config get registry`），pnpm 安装正常。
 11. **pnpm 11 + 受限环境**：pnpm 11 的 settings 在 `pnpm-workspace.yaml`（package.json 的 `pnpm` 字段已废弃）；
     esbuild 构建脚本在 `allowBuilds` 中显式关闭（二进制由 optionalDependencies 提供）。
