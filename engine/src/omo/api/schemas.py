@@ -39,3 +39,38 @@ class SimulateResponse(BaseModel):
     reflectance: list[SpectrumPoint]
     sheet_resistance: float | None = None  # Ω/sq；无导电层时为 null
     se_db: list[SpectrumPoint]
+
+
+# ---------------------------------------------------------------- 目标反推（/optimize）
+# 字段可选（None = 用引擎默认），与 omo.optimize 的 DesignTarget / OmoSearchConfig 对应。
+
+class OptimizeTarget(BaseModel):
+    """目标约束（硬约束，可任选；全缺省 = 无约束浏览扫描）。"""
+
+    min_visible_transmittance: float | None = Field(default=None, gt=0.0, le=1.0)
+    max_sheet_resistance: float | None = Field(default=None, gt=0.0)
+    min_se_db: float | None = Field(default=None, gt=0.0)
+    se_freq_range_ghz: tuple[float, float] | None = Field(
+        default=None, description="SE 评估频带 (lo, hi) GHz；缺省 X 波段 8.2–12.4"
+    )
+
+
+class OptimizeSpace(BaseModel):
+    """OMO 三层厚度扫描空间（缺省外层 20–80 步长 4、金属 5–20 步长 1）。"""
+
+    outer_bounds_nm: tuple[float, float] | None = None
+    outer_step_nm: float | None = Field(default=None, gt=0.0)
+    metal_bounds_nm: tuple[float, float] | None = None
+    metal_step_nm: float | None = Field(default=None, gt=0.0)
+    outer_material: str | None = Field(default=None, min_length=1)
+    metal_material: str | None = Field(default=None, min_length=1)
+    substrate_index: float | None = Field(default=None, gt=0.0)
+    top_n: int | None = Field(default=None, gt=0)
+
+
+class OptimizeRequest(BaseModel):
+    """目标反推请求：目标约束 + 扫描空间 + 是否计算灵敏度。"""
+
+    target: OptimizeTarget | None = None
+    space: OptimizeSpace | None = None
+    compute_sensitivity: bool = True

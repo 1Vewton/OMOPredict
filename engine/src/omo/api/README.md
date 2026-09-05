@@ -11,9 +11,9 @@
 
 | 模块 | 职责 |
 |---|---|
-| `schemas.py` | Pydantic 请求/响应模型（snake_case；`SimulateRequest` / `SimulateResponse`） |
-| `service.py` | `run_simulation`：编排光学（TMM）+ 电学（方阻）+ 屏蔽（SE）；无导电层时 Rs=null |
-| `main.py` | FastAPI 应用：`POST /simulate`、`GET /health` |
+| `schemas.py` | Pydantic 请求/响应模型（snake_case；`SimulateRequest`/`SimulateResponse` + `OptimizeRequest`） |
+| `service.py` | `run_simulation`：编排光学（TMM）+ 电学（方阻）+ 屏蔽（SE）；无导电层时 Rs=null；`run_optimization`：目标反推（包装 `omo.optimize`，含 Top 候选灵敏度） |
+| `main.py` | FastAPI 应用：`POST /simulate`、`POST /optimize`、`GET /health` |
 
 ## 启动与接口
 
@@ -24,6 +24,7 @@ uv run uvicorn omo.api.main:app --port 8000
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/simulate` | 提交膜结构，返回 T(λ) / Rs / SE(f)（同步） |
+| POST | `/optimize` | 目标反推（M5）：目标约束 → 候选膜厚组合 + 灵敏度（同步，数秒级） |
 | GET | `/health` | 健康检查 |
 
 ```bash

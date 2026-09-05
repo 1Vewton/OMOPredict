@@ -108,3 +108,100 @@ def test_simulate_insulator_no_rs() -> None:
     body = resp.json()
     assert body["sheet_resistance"] is None
     assert body["se_db"] == []
+
+
+# ---------------------------------------------------------------- /optimize（M5 目标反推）
+
+SMALL_SPACE = {
+    "outer_bounds_nm": [40.0, 60.0],
+    "outer_step_nm": 10.0,
+    "metal_bounds_nm": [8.0, 12.0],
+    "metal_step_nm": 2.0,
+}  # 3 × 3 × 3 = 27 组合
+
+
+def test_optimize_basic_report() -> None:
+    resp = client.post(
+        "/optimize",
+        json={
+            "target": {"min_visible_transmittance": 0.85, "max_sheet_resistance": 12.0},
+            "space": SMALL_SPACE,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["n_scanned"] == 27
+    assert body["pipeline_version"].startswith("omo.optimize.search")
+    assert len(body["candidates"]) > 0
+    top = body["candidates"][0]
+    assert top["thicknesses_nm"][1] > 0  # 金属层
+    assert top["fom"] is not None and top["fom"] > 0
+    assert top["visible_transmittance"] >= 0.85
+    # 灵敏度只对 Top 可行候选计算
+    assert body["sensitivity"] is not None
+    assert len(body["sensitivity"]["layers"]) == 3
+    assert body["sensitivity"]["layers"][0]["tolerance_nm"] is not None
+
+
+def test_optimize_with_se_constraint_uses_band() -> None:
+    resp = client.post(
+        "/optimize",
+        json={
+            "target": {
+                "min_se_db": 20.0,
+                "se_freq_range_ghz": [8.2, 12.4],
+            },
+            "space": SMALL_SPACE,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # 目标无 T/Rs 约束时是浏览扫描：candidates 按 FoM 全量排序
+    assert body["n_feasible"] == body["n_scanned"]
+    for c in body["candidates"]:
+        assert c["se_min_db"] is not None  # 带 SE 求值
+    assert body["candidates"][0]["se_min_db"] >= 20.0
+
+
+def test_optimize_no_sensitivity_flag() -> None:
+    resp = client.post(
+        "/optimize",
+        json={"target": {"max_sheet_resistance": 100.0}, "space": SMALL_SPACE,
+              "compute_sensitivity": False},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["sensitivity"] is None
+
+
+def test_optimize_impossible_target() -> None:
+    resp = client.post(
+        "/optimize",
+        json={
+            "target": {"min_visible_transmittance": 0.999, "max_sheet_resistance": 0.1},
+            "space": SMALL_SPACE,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["n_feasible"] == 0
+    assert body["candidates"] == []
+    assert body["best_effort"] is not None
+    assert body["sensitivity"] is None  # 无可行候选
+
+
+def test_optimize_unknown_material_422() -> None:
+    resp = client.post(
+        "/optimize",
+        json={"space": {"outer_material": "SiO2", **SMALL_SPACE}},
+    )
+    assert resp.status_code == 422
+    assert "SiO2" in resp.json()["detail"]
+
+
+def test_optimize_invalid_space_422() -> None:
+    resp = client.post(
+        "/optimize",
+        # 注意展开顺序：外层覆盖须在 SMALL_SPACE 之后才生效
+        json={"space": {**SMALL_SPACE, "outer_bounds_nm": [80.0, 20.0]}},
+    )
+    assert resp.status_code == 422

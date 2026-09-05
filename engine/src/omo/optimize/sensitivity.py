@@ -41,6 +41,18 @@ class LayerSensitivity:
     dlog10_rs_per_nm: float | None
     tolerance_nm: float | None
 
+    def to_dict(self) -> dict:
+        """序列化为可 JSON 化的 dict（API/报告用）。"""
+        return {
+            "layer_index": self.layer_index,
+            "material": self.material,
+            "thickness_nm": self.thickness_nm,
+            "dfom_rel_per_nm": self.dfom_rel_per_nm,
+            "dt_abs_per_nm": self.dt_abs_per_nm,
+            "dlog10_rs_per_nm": self.dlog10_rs_per_nm,
+            "tolerance_nm": self.tolerance_nm,
+        }
+
 
 @dataclass(frozen=True)
 class SensitivityAnalysis:
@@ -48,6 +60,19 @@ class SensitivityAnalysis:
 
     nominal: CandidateMetrics
     layers: tuple[LayerSensitivity, ...]
+
+    def to_dict(self) -> dict:
+        """序列化为可 JSON 化的 dict（API/报告用）。"""
+        return {
+            "nominal": {
+                "thicknesses_nm": list(self.nominal.thicknesses_nm),
+                "visible_transmittance": self.nominal.visible_transmittance,
+                "sheet_resistance": self.nominal.sheet_resistance,
+                "se_min_db": self.nominal.se_min_db,
+                "fom": self.nominal.fom,
+            },
+            "layers": [layer.to_dict() for layer in self.layers],
+        }
 
 
 def analyze_sensitivity(

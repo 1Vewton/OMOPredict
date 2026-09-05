@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
 
-from omo.api.schemas import SimulateRequest, SimulateResponse
-from omo.api.service import run_simulation
+from omo.api.schemas import OptimizeRequest, SimulateRequest, SimulateResponse
+from omo.api.service import run_optimization, run_simulation
 
 app = FastAPI(title="omo engine", version="0.1.0")
 
@@ -30,5 +30,18 @@ def simulate(req: SimulateRequest) -> SimulateResponse:
     """
     try:
         return run_simulation(req)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@app.post("/optimize")
+def optimize(req: OptimizeRequest) -> dict:
+    """目标反推（M5）：约束目标 → 候选膜厚组合 + 灵敏度（同步，数秒级）。
+
+    异常:
+        HTTPException 422: 配置非法（范围/步长/未知材料/组合超限等）
+    """
+    try:
+        return run_optimization(req)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
