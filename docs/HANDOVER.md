@@ -22,9 +22,10 @@ OMO（氧化物/金属/氧化物）纳米多层薄膜仿真设计软件：三层
 | M3 | ✅ | Go 用户/JWT + GORM 多库 + .env + 任务编排 | Go 全量测试 + **真实端到端冒烟** |
 | M4 | ✅ | Vue3+TS+Vite 前端：登录/注册、参数设计、ECharts 结果图（T/Rs/SE）、任务历史 | vue-tsc + eslint 0 告警 + vite build 通过 + **浏览器代理端到端联调**（值对齐引擎契约示例） |
 | M5 v1 | ✅ | omo.optimize 目标反推：target（硬约束）/ evaluate（引擎同源求值）/ search（网格扫描+FoM）/ sensitivity（逐层灵敏度+工艺窗口）+ `omo-cli optimize` | 19 测试（含候选回灌自洽）+ ruff 0；默认 4096 组合 ~3 s（含 SE） |
-| M5 余/M6 | ⏳ | 优化 API/前端接入、报告导出、NN 代理加速 / 集成 | 待做 |
+| M5 v2 API | ✅ | 引擎 `POST /optimize` 端点 + Go 任务模型泛化 `kind=simulate\|optimize`（`optimize_result` 原样持久化） | 6 引擎测试 + 5 Go 测试新增；真实端到端冒烟（建 optimize 任务→轮询→候选/FoM/灵敏度） |
+| M5 余/M6 | ⏳ | 前端"目标反推"页、报告导出、NN 代理加速 / 集成 | 待做 |
 
-测试现状：Python **87 passed / ruff 0**（本机沙箱 4 个 tmp_path 用例报 PermissionError，属环境限制非代码问题）；Go 全量测试通过（api/model/store/user/task）；前端 `pnpm lint` 0 告警 + `vue-tsc -b` + `vite build` 通过。
+测试现状：Python **93 passed / ruff 0**（本机沙箱 4 个 tmp_path 用例报 PermissionError，属环境限制非代码问题）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流）；前端 `pnpm lint` 0 告警 + `vue-tsc -b` + `vite build` 通过。
 
 ## 3. 三层架构与启动
 
@@ -57,12 +58,13 @@ cd frontend && pnpm install && pnpm dev
 | emi/ | shielding.py（传输线+Schelkunoff+薄膜近似）、materials.py |
 | benchmark/ | schema/materials(已迁出)/runner/metrics/report/calibrate |
 | neural/ | data.py（引擎生成数据）、model.py（MLP）、validate.py |
-| api/ | schemas.py / service.py / main.py（FastAPI /simulate） |
+| api/ | schemas.py / service.py / main.py（FastAPI /simulate + **/optimize**） |
 | cli/ | omo-cli（--version/--info；**optimize 子命令已实现**；simulate 子命令待做） |
 | optimize/ | **M5 v1 完成**：target.py（DesignTarget 硬约束）/ evaluate.py（CandidateMetrics，引擎同源求值）/ search.py（OmoSearchConfig + 网格扫描 + FoM 排序）/ sensitivity.py（逐层灵敏度 + 工艺窗口） |
 
 **server/internal/**（Go）：api（路由+认证+任务 handler）、user（bcrypt+JWT+GORM）、
-model（FilmStack/SimulationTask/TaskResult）、store（GORM Open/Migrate/.env）、task（engine 客户端+异步编排）。
+model（FilmStack/SimulationTask(TaskKind)/TaskResult/OptimizeSpec）、store（GORM Open/Migrate/.env）、
+task（engine 客户端 + **kind=simulate\|optimize 异步编排**）。
 
 **frontend/**（Vue 3 + TS，M4 完成）：`src/api/`（http 封装 + auth/tasks 接口）、`src/stores/`（Pinia auth）、
 `src/router/`（认证守卫）、`src/views/`（Login/Design/TaskDetail/History）、`src/components/`（SpectrumChart/SeChart/StatusBadge）、
@@ -128,7 +130,16 @@ model（FilmStack/SimulationTask/TaskResult）、store（GORM Open/Migrate/.env�
 - 验证：19 测试（含 Top 候选回灌物理引擎自洽）+ ruff 0；默认 4096 组合含 SE 约 3 s（无 SE 约束自动跳过屏蔽求值）
 - 快速体验：`uv run omo-cli optimize --min-t 0.85 --max-rs 12 --min-se 25`
 
-**M5 剩余**：优化 API/前端接入（Go 任务类型或引擎 /optimize 端点 + 前端"目标反推"页）、
+**M5 v2（优化 API 打通）—— ✅ 已完成（2026-09）**：
+- 引擎 `POST /optimize`（schemas OptimizeTarget/OptimizeSpace + service.run_optimization + main 路由，
+  ValueError → 422；契约见 docs/api/engine.md）
+- Go 任务模型泛化：`SimulationTask.Kind`（simulate|optimize）+ `Optimize` 参数列 +
+  `optimize_result`（引擎报告 JSON 原样持久化，顶层注入 task_id）；`POST /api/tasks` 按 kind 分流
+  （缺省 simulate，存量数据向后兼容）；EngineClient.Optimize + service.runOptimize
+- 验证：引擎 6 个 /optimize 测试 + Go 5 个新测试（optimize 任务流/缺参 400/未知 kind 400/引擎失败）；
+  真实端到端冒烟通过（经 Vite 代理：建 kind=optimize 任务 → 轮询 succeeded → candidates/FoM/灵敏度完整）
+
+**M5 剩余**：前端"目标反推"页（kind=optimize 任务表单 + 候选表 + 灵敏度展示）、
 报告导出、遗传/贝叶斯寻优、NN 代理加速后端（接口不变）。
 **M6（集成）**：部署（Go 静态托管 frontend/dist + CORS 配置）、示例数据与演示、端到端测试完善。
 
