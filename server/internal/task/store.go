@@ -6,6 +6,7 @@ package task
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -24,6 +25,8 @@ type Store interface {
 	List(ctx context.Context, userID string) ([]model.SimulationTask, error)
 	UpdateStatus(ctx context.Context, id string, status model.TaskStatus, errMsg string) error
 	UpdateResult(ctx context.Context, id string, result *model.TaskResult) error
+	// UpdateOptimizeResult 写入目标反推结果（引擎报告 JSON 原样）并置为 succeeded。
+	UpdateOptimizeResult(ctx context.Context, id string, raw json.RawMessage) error
 }
 
 // GORMStore 基于 GORM 的任务存储（兼容 sqlite / mysql / postgres）。
@@ -89,6 +92,18 @@ func (s *GORMStore) UpdateResult(ctx context.Context, id string, result *model.T
 		return err
 	}
 	t.Result = result
+	t.Status = model.TaskSucceeded
+	t.UpdatedAt = nowUnix()
+	return s.db.WithContext(ctx).Save(t).Error
+}
+
+// UpdateOptimizeResult 写入目标反推结果（JSON 原样）并置为 succeeded。
+func (s *GORMStore) UpdateOptimizeResult(ctx context.Context, id string, raw json.RawMessage) error {
+	t, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	t.OptimizeResult = raw
 	t.Status = model.TaskSucceeded
 	t.UpdatedAt = nowUnix()
 	return s.db.WithContext(ctx).Save(t).Error

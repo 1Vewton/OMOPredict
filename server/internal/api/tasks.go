@@ -9,18 +9,21 @@ import (
 	"github.com/1Vewton/OMOPredict/server/internal/task"
 )
 
-// createTaskRequest POST /api/tasks 请求体。
+// createTaskRequest POST /api/tasks 请求体（kind=simulate 用 layers/substrate_index；
+// kind=optimize 用 optimize 参数）。
 type createTaskRequest struct {
-	Name           string        `json:"name"`
-	Layers         []model.Layer `json:"layers"`
-	SubstrateIndex float64       `json:"substrate_index,omitempty"`
+	Kind           model.TaskKind      `json:"kind"` // simulate（默认）| optimize
+	Name           string              `json:"name"`
+	Layers         []model.Layer       `json:"layers"`
+	SubstrateIndex float64             `json:"substrate_index,omitempty"`
+	Optimize       *model.OptimizeSpec `json:"optimize,omitempty"`
 }
 
 type taskListResponse struct {
 	Tasks []model.SimulationTask `json:"tasks"`
 }
 
-// createTaskHandler POST /api/tasks —— 创建仿真任务（异步执行，返回 202）。
+// createTaskHandler POST /api/tasks —— 创建仿真/反推任务（异步执行，返回 202）。
 func createTaskHandler(tasks *task.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u, ok := userFromContext(r.Context())
@@ -33,15 +36,44 @@ func createTaskHandler(tasks *task.Service) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
-		if len(req.Layers) == 0 {
-			writeError(w, http.StatusBadRequest, "layers 至少需要一层")
+		kind := req.Kind
+		if kind == "" {
+			kind = model.TaskKindSimulate
+		}
+
+		var in task.CreateInput
+		switch kind {
+		case model.TaskKindOptimize:
+			if req.Optimize == nil {
+				writeError(w, http.StatusBadRequest, "optimize 任务需提供 optimize 参数")
+				return
+			}
+			in = task.CreateInput{
+				Kind:     model.TaskKindOptimize,
+				Name:     req.Name,
+				Optimize: req.Optimize,
+			}
+		case model.TaskKindSimulate:
+			if len(req.Layers) == 0 {
+				writeError(w, http.StatusBadRequest, "layers 至少需要一层")
+				return
+			}
+			in = task.CreateInput{
+				Kind: model.TaskKindSimulate,
+				Name: req.Name,
+				Stack: &model.FilmStack{
+					Name:           req.Name,
+					Layers:         req.Layers,
+					SubstrateIndex: req.SubstrateIndex,
+				},
+			}
+		default:
+			writeError(w, http.StatusBadRequest,
+				"kind 必须为 simulate 或 optimize")
 			return
 		}
-		created, err := tasks.Create(r.Context(), u.ID, model.FilmStack{
-			Name:           req.Name,
-			Layers:         req.Layers,
-			SubstrateIndex: req.SubstrateIndex,
-		})
+
+		created, err := tasks.Create(r.Context(), u.ID, in)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

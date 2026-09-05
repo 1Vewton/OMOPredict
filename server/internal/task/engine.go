@@ -102,3 +102,65 @@ func (c *EngineClient) Simulate(ctx context.Context, stack model.FilmStack) (*mo
 		SEDB:            out.SEDB,
 	}, nil
 }
+
+// Optimize 提交目标反推请求并同步返回引擎报告（JSON 原样，不解析内容）。
+//
+// spec 的 JSON 键与引擎 /optimize 请求对齐（target/space/compute_sensitivity）。
+//
+// 异常:
+//   - 引擎返回非 200（含 422 校验错误，detail 透传）
+//   - 网络/超时错误
+//   - 引擎响应不是合法 JSON
+func (c *EngineClient) Optimize(ctx context.Context, spec *model.OptimizeSpec) (json.RawMessage, error) {
+	payload, err := json.Marshal(spec)
+	if err != nil {
+		return nil, fmt.Errorf("task: marshal optimize request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodPost, c.baseURL+"/optimize", bytes.NewReader(payload),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("task: build optimize request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("task: engine optimize request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		var e struct {
+			Detail string `json:"detail"`
+		}
+		_ = json.Unmarshal(body, &e)
+		if e.Detail == "" {
+			e.Detail = string(body)
+		}
+		return nil, fmt.Errorf("engine /optimize: %s: %s", resp.Status, e.Detail)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20)) // 16 MiB 上限
+	if err != nil {
+		return nil, fmt.Errorf("task: read optimize response: %w", err)
+	}
+	if !json.Valid(raw) {
+		return nil, fmt.Errorf("task: engine /optimize 返回非法 JSON")
+	}
+	return json.RawMessage(raw), nil
+}
+
+// withTaskID 在引擎报告 JSON 顶层注入 task_id（与 simulate 的 TaskResult.TaskID 语义一致）。
+func withTaskID(raw json.RawMessage, taskID string) (json.RawMessage, error) {
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, fmt.Errorf("task: decode optimize result: %w", err)
+	}
+	m["task_id"] = taskID
+	out, err := json.Marshal(m)
+	if err != nil {
+		return nil, fmt.Errorf("task: re-encode optimize result: %w", err)
+	}
+	return json.RawMessage(out), nil
+}

@@ -14,12 +14,12 @@ import (
 	"github.com/1Vewton/OMOPredict/server/internal/task"
 )
 
-// fakeEngine 模拟 Python 引擎 /simulate（fail=true 时返回 422）。
+// fakeEngine 模拟 Python 引擎 /simulate 与 /optimize（fail=true 时均返回 422）。
 func fakeEngine(t *testing.T, fail bool) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/simulate" || r.Method != http.MethodPost {
-			http.Error(w, "not found", http.StatusNotFound)
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		if fail {
@@ -27,13 +27,40 @@ func fakeEngine(t *testing.T, fail bool) *httptest.Server {
 			_, _ = w.Write([]byte(`{"detail":"unknown material: SiO2"}`))
 			return
 		}
-		rs := 3.9708
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"transmittance":    []model.SpectrumPoint{{X: 550, Value: 0.9745}},
-			"reflectance":      []model.SpectrumPoint{{X: 550, Value: 0.0162}},
-			"sheet_resistance": rs,
-			"se_db":            []model.SpectrumPoint{{X: 10.0, Value: 33.7}},
-		})
+		switch r.URL.Path {
+		case "/simulate":
+			rs := 3.9708
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"transmittance":    []model.SpectrumPoint{{X: 550, Value: 0.9745}},
+				"reflectance":      []model.SpectrumPoint{{X: 550, Value: 0.0162}},
+				"sheet_resistance": rs,
+				"se_db":            []model.SpectrumPoint{{X: 10.0, Value: 33.7}},
+			})
+		case "/optimize":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"n_scanned":       4096,
+				"n_feasible":      3,
+				"elapsed_seconds": 0.1,
+				"candidates": []map[string]any{{
+					"thicknesses_nm":        []float64{52, 8, 56},
+					"visible_transmittance": 0.9643,
+					"sheet_resistance":      4.75,
+					"se_min_db":             32.19,
+					"se_band_ghz":           []float64{8.2, 12.4},
+					"fom":                   0.14656,
+				}},
+				"best_effort": nil,
+				"sensitivity": map[string]any{
+					"layers": []map[string]any{{
+						"layer_index": 1, "material": "Ag", "thickness_nm": 8.0,
+						"dfom_rel_per_nm": -0.0091, "dt_abs_per_nm": -0.01371,
+						"dlog10_rs_per_nm": -0.0579, "tolerance_nm": 4.5,
+					}},
+				},
+			})
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+		}
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -255,5 +282,109 @@ func TestTaskUnauthorized(t *testing.T) {
 		strings.NewReader(itoAgItoBody())))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("no token status = %d, want 401", rec.Code)
+	}
+}
+
+func optimizeTaskBody() string {
+	return `{"kind":"optimize","name":"design-1","optimize":{
+		"target":{"min_visible_transmittance":0.85,"max_sheet_resistance":12.0,"min_se_db":25.0},
+		"space":{"outer_bounds_nm":[20,80],"outer_step_nm":4.0,
+		         "metal_bounds_nm":[5,20],"metal_step_nm":1.0},
+		"compute_sensitivity":true}}`
+}
+
+// TestOptimizeTaskFlow kind=optimize：202 → 轮询 succeeded → optimize_result 为引擎报告 JSON。
+func TestOptimizeTaskFlow(t *testing.T) {
+	router := newTestRouter(t)
+	token := registerAndLogin(t, router, "alice")
+
+	rec := postTask(t, router, token, optimizeTaskBody())
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("create optimize task status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var created model.SimulationTask
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode created: %v", err)
+	}
+	if created.Kind != model.TaskKindOptimize || created.Optimize == nil {
+		t.Fatalf("created 应带 kind=optimize 与 optimize 参数: %+v", created)
+	}
+
+	done := waitForTask(t, router, token, created.ID, model.TaskSucceeded)
+	if done.Kind != model.TaskKindOptimize {
+		t.Fatalf("task kind = %q, want optimize", done.Kind)
+	}
+	if len(done.OptimizeResult) == 0 {
+		t.Fatal("optimize_result 为空")
+	}
+	var report struct {
+		TaskID      string           `json:"task_id"`
+		NScanned    int              `json:"n_scanned"`
+		NFeasible   int              `json:"n_feasible"`
+		Candidates  []map[string]any `json:"candidates"`
+		Sensitivity *struct {
+			Layers []map[string]any `json:"layers"`
+		} `json:"sensitivity"`
+	}
+	if err := json.Unmarshal(done.OptimizeResult, &report); err != nil {
+		t.Fatalf("optimize_result 非法 JSON: %v", err)
+	}
+	if report.TaskID != created.ID {
+		t.Fatalf("result task_id = %q, want %q", report.TaskID, created.ID)
+	}
+	if report.NScanned != 4096 || len(report.Candidates) != 1 {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	if report.Sensitivity == nil || len(report.Sensitivity.Layers) != 1 {
+		t.Fatalf("sensitivity 缺失: %+v", report.Sensitivity)
+	}
+	top := report.Candidates[0]
+	if top["fom"].(float64) != 0.14656 {
+		t.Fatalf("top candidate fom = %v", top["fom"])
+	}
+}
+
+func TestOptimizeTaskMissingSpec(t *testing.T) {
+	router := newTestRouter(t)
+	token := registerAndLogin(t, router, "alice")
+	rec := postTask(t, router, token, `{"kind":"optimize"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing optimize status = %d, want 400 (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateTaskUnknownKind(t *testing.T) {
+	router := newTestRouter(t)
+	token := registerAndLogin(t, router, "alice")
+	rec := postTask(t, router, token, `{"kind":"scan","layers":[{"material":"ITO","thickness_nm":40}]}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown kind status = %d, want 400", rec.Code)
+	}
+}
+
+func TestOptimizeTaskEngineFailure(t *testing.T) {
+	router := NewRouter(newTestService(t), newTestTaskService(t, fakeEngine(t, true).URL))
+	token := registerAndLogin(t, router, "bob")
+	rec := postTask(t, router, token, optimizeTaskBody())
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("create optimize task status = %d", rec.Code)
+	}
+	var created model.SimulationTask
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+	done := waitForTask(t, router, token, created.ID, model.TaskFailed)
+	if !strings.Contains(done.Error, "SiO2") {
+		t.Fatalf("错误消息缺少 SiO2: %q", done.Error)
+	}
+}
+
+// TestTaskSimulateKindDefault 兼容：不带 kind 的任务按 simulate 处理。
+func TestTaskSimulateKindDefault(t *testing.T) {
+	router := newTestRouter(t)
+	token := registerAndLogin(t, router, "alice")
+	rec := postTask(t, router, token, itoAgItoBody())
+	var created model.SimulationTask
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+	if created.Kind != model.TaskKindSimulate {
+		t.Fatalf("缺省 kind = %q, want simulate", created.Kind)
 	}
 }

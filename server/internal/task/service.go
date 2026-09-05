@@ -1,5 +1,5 @@
-// Package task 提供仿真任务编排（M3）：
-// 任务生命周期管理 + 调用 Python 引擎（omo.api /simulate）。
+// Package task 提供任务编排（M3 simulate + M5 optimize）：
+// 任务生命周期管理 + 调用 Python 引擎（omo.api /simulate、/optimize）。
 //
 // 契约见 docs/api/engine.md。
 package task
@@ -26,12 +26,27 @@ func NewService(store Store, engine *EngineClient) *Service {
 	return &Service{store: store, engine: engine}
 }
 
+// CreateInput 创建任务的载荷（按 Kind 二选一填写）。
+type CreateInput struct {
+	Kind     model.TaskKind
+	Name     string
+	Stack    *model.FilmStack    // Kind=simulate（正向仿真膜结构）
+	Optimize *model.OptimizeSpec // Kind=optimize（目标反推参数）
+}
+
 // Create 创建任务（pending）并异步执行；任务 ID 随即返回。
-func (s *Service) Create(ctx context.Context, userID string, stack model.FilmStack) (*model.SimulationTask, error) {
+func (s *Service) Create(ctx context.Context, userID string, in CreateInput) (*model.SimulationTask, error) {
+	kind := in.Kind
+	if kind == "" {
+		kind = model.TaskKindSimulate
+	}
 	t := &model.SimulationTask{
 		ID:        newTaskID(),
 		UserID:    userID,
-		Stack:     stack,
+		Kind:      kind,
+		Name:      in.Name,
+		Stack:     in.Stack,
+		Optimize:  in.Optimize,
 		Status:    model.TaskPending,
 		CreatedAt: time.Now().UTC().Unix(),
 		UpdatedAt: time.Now().UTC().Unix(),
@@ -65,16 +80,57 @@ func (s *Service) run(taskID string) {
 		log.Printf("task %s: get: %v", taskID, err)
 		return
 	}
-	result, err := s.engine.Simulate(ctx, t.Stack)
-	if err != nil {
-		if uerr := s.store.UpdateStatus(ctx, taskID, model.TaskFailed, err.Error()); uerr != nil {
-			log.Printf("task %s: mark failed: %v", taskID, uerr)
-		}
+
+	switch t.Kind {
+	case model.TaskKindOptimize:
+		s.runOptimize(ctx, t)
+	default:
+		s.runSimulate(ctx, t)
+	}
+}
+
+// runSimulate 正向仿真：调引擎 /simulate → 结果持久化。
+func (s *Service) runSimulate(ctx context.Context, t *model.SimulationTask) {
+	if t.Stack == nil {
+		s.fail(ctx, t.ID, "simulate 任务缺少 stack")
 		return
 	}
-	result.TaskID = taskID
-	if err := s.store.UpdateResult(ctx, taskID, result); err != nil {
-		log.Printf("task %s: save result: %v", taskID, err)
+	result, err := s.engine.Simulate(ctx, *t.Stack)
+	if err != nil {
+		s.fail(ctx, t.ID, err.Error())
+		return
+	}
+	result.TaskID = t.ID
+	if err := s.store.UpdateResult(ctx, t.ID, result); err != nil {
+		log.Printf("task %s: save result: %v", t.ID, err)
+	}
+}
+
+// runOptimize 目标反推：调引擎 /optimize → 报告原样持久化（顶层注入 task_id）。
+func (s *Service) runOptimize(ctx context.Context, t *model.SimulationTask) {
+	if t.Optimize == nil {
+		s.fail(ctx, t.ID, "optimize 任务缺少 optimize 参数")
+		return
+	}
+	raw, err := s.engine.Optimize(ctx, t.Optimize)
+	if err != nil {
+		s.fail(ctx, t.ID, err.Error())
+		return
+	}
+	injected, err := withTaskID(raw, t.ID)
+	if err != nil {
+		s.fail(ctx, t.ID, err.Error())
+		return
+	}
+	if err := s.store.UpdateOptimizeResult(ctx, t.ID, injected); err != nil {
+		log.Printf("task %s: save optimize result: %v", t.ID, err)
+	}
+}
+
+// fail 置为 failed 并记录错误消息。
+func (s *Service) fail(ctx context.Context, id, msg string) {
+	if err := s.store.UpdateStatus(ctx, id, model.TaskFailed, msg); err != nil {
+		log.Printf("task %s: mark failed: %v", id, err)
 	}
 }
 
