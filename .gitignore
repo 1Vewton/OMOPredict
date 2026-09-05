@@ -224,6 +224,9 @@ __marimo__/
 # pnpm 本地 store（本环境沙箱把 store 落在工作区）
 .pnpm-store/
 
+# Go 构建缓存（本环境沙箱把 GOCACHE 落在工作区）
+.go-cache/
+
 # 对标报告派生产物（可随时重新生成）
 docs/benchmarks/*_report.json
 docs/benchmarks/*_report.png
