@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError } from '@/api/http'
 import { tasksApi } from '@/api/tasks'
+import HelpTip from '@/components/HelpTip.vue'
 import SeChart from '@/components/SeChart.vue'
 import SpectrumChart from '@/components/SpectrumChart.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -176,7 +177,7 @@ function layerLabel(i: number): string {
         <template v-else-if="task?.status === 'succeeded' && !isOptimize && task.result">
           <div class="metric-grid">
             <div class="metric-card">
-              <div class="metric-label">方阻 Rs</div>
+              <div class="metric-label">方阻 Rs<HelpTip k="result.rs" /></div>
               <div class="metric-value">
                 {{ rs != null ? `${rs.toFixed(2)} Ω/sq` : '—' }}
               </div>
@@ -187,7 +188,9 @@ function layerLabel(i: number): string {
           </div>
 
           <div class="chart-card">
-            <div class="card-title">光学性能：透过率 / 反射率光谱</div>
+            <div class="card-title">
+              光学性能：透过率 / 反射率光谱<HelpTip k="result.spectrum" />
+            </div>
             <SpectrumChart
               :transmittance="task.result.transmittance"
               :reflectance="task.result.reflectance"
@@ -231,8 +234,8 @@ function layerLabel(i: number): string {
                   <th>厚度组合 (nm)</th>
                   <th>T_vis</th>
                   <th>Rs (Ω/sq)</th>
-                  <th>SE_min</th>
-                  <th>FoM</th>
+                  <th>SE_min<HelpTip k="result.semin" /></th>
+                  <th>FoM<HelpTip k="optimize.fom" /></th>
                 </tr>
               </thead>
               <tbody>
@@ -262,10 +265,10 @@ function layerLabel(i: number): string {
                 <tr>
                   <th>层</th>
                   <th>材料 / 厚度</th>
-                  <th style="width: 200px">ΔFoM/FoM（相对）</th>
+                  <th style="width: 200px">ΔFoM/FoM（相对）<HelpTip k="result.sensbar" /></th>
                   <th>ΔT_vis</th>
                   <th>Δlog₁₀Rs</th>
-                  <th>工艺窗口</th>
+                  <th>工艺窗口<HelpTip k="result.window" /></th>
                 </tr>
               </thead>
               <tbody>

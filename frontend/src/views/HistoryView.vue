@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError } from '@/api/http'
 import { tasksApi } from '@/api/tasks'
+import HelpTip from '@/components/HelpTip.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import type { SimulationTask } from '@/types'
 
@@ -68,7 +69,7 @@ function contentText(t: SimulationTask): string {
 <template>
   <div>
     <div class="head-row">
-      <h2 class="page-title">任务历史</h2>
+      <h2 class="page-title">任务历史<HelpTip k="history.status" /></h2>
       <button class="btn btn-ghost" type="button" :disabled="loading" @click="load">
         {{ loading ? '刷新中…' : '刷新' }}
       </button>
@@ -88,7 +89,7 @@ function contentText(t: SimulationTask): string {
       <table v-else class="table">
         <thead>
           <tr>
-            <th>类型</th>
+            <th>类型<HelpTip k="history.kind" /></th>
             <th>状态</th>
             <th>名称</th>
             <th>内容</th>

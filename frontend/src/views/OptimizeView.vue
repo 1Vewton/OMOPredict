@@ -3,6 +3,7 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ApiError } from '@/api/http'
 import { tasksApi } from '@/api/tasks'
+import HelpTip from '@/components/HelpTip.vue'
 import type { OptimizeSpace, OptimizeTarget } from '@/types'
 
 const router = useRouter()
@@ -196,7 +197,7 @@ async function submit(): Promise<void> {
         <div class="card-title">性能目标（留空 = 不限该约束）</div>
         <div class="constraint-grid">
           <div class="field">
-            <label for="min-t">可见光平均透过率下限</label>
+            <label for="min-t">可见光平均透过率下限<HelpTip k="optimize.tvis" /></label>
             <div class="input-suffix">
               <input
                 id="min-t"
@@ -212,7 +213,7 @@ async function submit(): Promise<void> {
             </div>
           </div>
           <div class="field">
-            <label for="max-rs">方阻上限</label>
+            <label for="max-rs">方阻上限<HelpTip k="optimize.rs" /></label>
             <div class="input-suffix">
               <input
                 id="max-rs"
@@ -227,7 +228,7 @@ async function submit(): Promise<void> {
             </div>
           </div>
           <div class="field">
-            <label for="min-se">屏蔽效能下限（X 波段）</label>
+            <label for="min-se">屏蔽效能下限（X 波段）<HelpTip k="optimize.se" /></label>
             <div class="input-suffix">
               <input
                 id="min-se"
@@ -242,7 +243,7 @@ async function submit(): Promise<void> {
             </div>
           </div>
           <div v-if="form.minSe !== ''" class="field">
-            <label>SE 频带（GHz）</label>
+            <label>SE 频带（GHz）<HelpTip k="optimize.band" /></label>
             <div class="band-row">
               <input v-model.number="form.seLo" class="input" type="number" step="0.1" />
               <span class="muted">–</span>
@@ -253,6 +254,7 @@ async function submit(): Promise<void> {
         <label class="check-row">
           <input v-model="form.useSensitivity" type="checkbox" />
           计算 Top 候选的逐层灵敏度与工艺窗口
+          <HelpTip k="optimize.sensitivity" />
         </label>
       </div>
     </div>
@@ -265,7 +267,7 @@ async function submit(): Promise<void> {
           @click="showAdvanced = !showAdvanced"
         >
           {{ showAdvanced ? '▾' : '▸' }} 高级：扫描空间（可选，默认 ITO/Ag/ITO · 外层 20–80 步长 4 ·
-          金属 5–20 步长 1）
+          金属 5–20 步长 1）<HelpTip k="optimize.space" />
         </button>
         <div v-if="showAdvanced" class="advanced-body">
           <div class="field">
@@ -325,7 +327,7 @@ async function submit(): Promise<void> {
             </div>
           </div>
           <div class="field inline-field">
-            <label for="top-n">返回候选数</label>
+            <label for="top-n">返回候选数<HelpTip k="optimize.topn" /></label>
             <input
               id="top-n"
               v-model="advanced.topN"

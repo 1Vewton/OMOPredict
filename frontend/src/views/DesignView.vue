@@ -3,6 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ApiError } from '@/api/http'
 import { tasksApi } from '@/api/tasks'
+import HelpTip from '@/components/HelpTip.vue'
 import type { Layer } from '@/types'
 
 const router = useRouter()
@@ -160,9 +161,9 @@ async function submit(): Promise<void> {
         <table class="table">
           <thead>
             <tr>
-              <th style="width: 48px">#</th>
-              <th>材料</th>
-              <th style="width: 220px">厚度（nm）</th>
+              <th style="width: 48px">#<HelpTip k="design.order" placement="right" /></th>
+              <th>材料<HelpTip k="design.material" /></th>
+              <th style="width: 220px">厚度（nm）<HelpTip k="design.thickness" /></th>
               <th style="width: 80px"></th>
             </tr>
           </thead>
@@ -210,7 +211,7 @@ async function submit(): Promise<void> {
         </div>
 
         <div class="field mt-16 substrate-field">
-          <label for="substrate-index">衬底折射率</label>
+          <label for="substrate-index">衬底折射率<HelpTip k="design.substrate" /></label>
           <input
             id="substrate-index"
             v-model.number="substrateIndex"

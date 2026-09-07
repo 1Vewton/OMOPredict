@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiError } from '@/api/http'
+import HelpTip from '@/components/HelpTip.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -79,10 +80,22 @@ async function submit(): Promise<void> {
       mode.value = 'login'
       password.value = ''
       confirmPassword.value = ''
-      success.value = `注册成功，请登录（${name}）`
+      success.value = `注册成功（${name}），请重新输入密码登录`
     }
   } catch (e) {
-    error.value = e instanceof ApiError ? e.message : '请求失败，请稍后重试'
+    if (e instanceof ApiError) {
+      // 把后端英文错误映射为可操作的提示（按状态码，避免依赖消息文本）
+      if (mode.value === 'login' && e.status === 401) {
+        error.value =
+          '用户名或密码错误。注册后密码已清空，请在登录页重新输入注册时设置的密码；若仍失败可换用户名重新注册。'
+      } else if (mode.value === 'register' && e.status === 409) {
+        error.value = '该用户名已存在：切换到「登录」页直接登录，或更换用户名重新注册。'
+      } else {
+        error.value = e.message
+      }
+    } else {
+      error.value = '请求失败，请稍后重试'
+    }
   } finally {
     loading.value = false
   }
@@ -124,7 +137,7 @@ async function submit(): Promise<void> {
 
       <form @submit.prevent="submit">
         <div class="field">
-          <label for="username">用户名</label>
+          <label for="username">用户名<HelpTip k="login.username" /></label>
           <input
             id="username"
             v-model="username"
@@ -136,7 +149,7 @@ async function submit(): Promise<void> {
         </div>
 
         <div class="field">
-          <label for="password">密码</label>
+          <label for="password">密码<HelpTip k="login.password" /></label>
           <input
             id="password"
             v-model="password"
