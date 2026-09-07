@@ -45,13 +45,23 @@ function fmtTime(unix: number): string {
   return new Date(unix * 1000).toLocaleString()
 }
 
-function stackText(t: SimulationTask): string {
-  return t.stack.layers.map((l) => `${l.material} ${l.thickness_nm}nm`).join(' / ')
+function kindText(t: SimulationTask): string {
+  return t.kind === 'optimize' ? '目标反推' : '仿真'
 }
 
-function rsText(t: SimulationTask): string {
-  const rs = t.result?.sheet_resistance
-  return rs != null ? `${rs.toFixed(2)} Ω/sq` : '—'
+function nameText(t: SimulationTask): string {
+  return t.name || t.stack?.name || '未命名'
+}
+
+/** 摘要列：simulate → 膜结构；optimize → 扫描/可行数（成功时）。 */
+function contentText(t: SimulationTask): string {
+  if (t.kind === 'optimize') {
+    const r = t.optimize_result
+    if (r) return `${r.n_scanned} 组合 · ${r.n_feasible} 可行`
+    return t.status === 'failed' ? '反推失败' : '目标反推'
+  }
+  if (!t.stack?.layers) return '—'
+  return t.stack.layers.map((l) => `${l.material} ${l.thickness_nm}nm`).join(' / ')
 }
 </script>
 
@@ -72,26 +82,33 @@ function rsText(t: SimulationTask): string {
       </div>
 
       <div v-else-if="tasks.length === 0" class="empty">
-        暂无仿真任务，去<a href="/design">参数设计</a>页创建第一个任务吧
+        暂无任务，去<a href="/design">参数设计</a>或<a href="/optimize">目标反推</a>创建第一个吧
       </div>
 
       <table v-else class="table">
         <thead>
           <tr>
+            <th>类型</th>
             <th>状态</th>
             <th>名称</th>
-            <th>膜结构</th>
-            <th>方阻</th>
+            <th>内容</th>
             <th>创建时间</th>
             <th style="width: 72px"></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="t in tasks" :key="t.id">
+            <td>
+              <span
+                class="kind-tag"
+                :class="t.kind === 'optimize' ? 'tag-optimize' : 'tag-simulate'"
+              >
+                {{ kindText(t) }}
+              </span>
+            </td>
             <td><StatusBadge :status="t.status" /></td>
-            <td>{{ t.stack.name || '未命名' }}</td>
-            <td class="stack-cell" :title="stackText(t)">{{ stackText(t) }}</td>
-            <td>{{ rsText(t) }}</td>
+            <td>{{ nameText(t) }}</td>
+            <td class="stack-cell" :title="contentText(t)">{{ contentText(t) }}</td>
             <td class="muted">{{ fmtTime(t.created_at) }}</td>
             <td>
               <RouterLink class="view-link" :to="{ name: 'task-detail', params: { id: t.id } }">
@@ -123,6 +140,23 @@ function rsText(t: SimulationTask): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.kind-tag {
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+.tag-simulate {
+  background: rgb(100 116 139 / 0.12);
+  color: var(--color-text-muted);
+}
+
+.tag-optimize {
+  background: rgb(37 99 235 / 0.12);
+  color: var(--color-primary-dark);
 }
 
 .view-link {

@@ -30,6 +30,7 @@ onBeforeUnmount(() => window.removeEventListener('omo:unauthorized', onUnauthori
       </div>
       <nav v-if="auth.isAuthenticated" class="nav">
         <RouterLink to="/design" active-class="active">参数设计</RouterLink>
+        <RouterLink to="/optimize" active-class="active">目标反推</RouterLink>
         <RouterLink to="/history" active-class="active">任务历史</RouterLink>
       </nav>
       <div v-if="auth.isAuthenticated" class="user-box">

@@ -17,6 +17,11 @@ const router = createRouter({
       component: () => import('@/views/DesignView.vue'),
     },
     {
+      path: '/optimize',
+      name: 'optimize',
+      component: () => import('@/views/OptimizeView.vue'),
+    },
+    {
       path: '/tasks/:id',
       name: 'task-detail',
       component: () => import('@/views/TaskDetailView.vue'),
