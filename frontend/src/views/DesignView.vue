@@ -161,7 +161,7 @@ async function submit(): Promise<void> {
         <table class="table">
           <thead>
             <tr>
-              <th style="width: 48px">#<HelpTip k="design.order" placement="right" /></th>
+              <th class="th-id">#<HelpTip k="design.order" placement="right" /></th>
               <th>材料<HelpTip k="design.material" /></th>
               <th style="width: 220px">厚度（nm）<HelpTip k="design.thickness" /></th>
               <th style="width: 80px"></th>
@@ -249,6 +249,12 @@ async function submit(): Promise<void> {
 .page-title {
   font-size: 20px;
   margin: 0 0 16px;
+}
+
+/* # 列表头：问号帮助图标与 # 保持同行 */
+.th-id {
+  width: 80px;
+  white-space: nowrap;
 }
 
 .preset-row {
