@@ -87,10 +87,16 @@ func newTestTaskService(t *testing.T, engineURL string) *task.Service {
 	return task.NewService(task.NewGORMStore(db), task.NewEngineClient(engineURL))
 }
 
-// newTestRouter 组装完整路由（假引擎 + 临时库）。
+// newTestRouter 组装完整路由（假引擎 + 临时库，Web 默认模式：jwt + http）。
 func newTestRouter(t *testing.T) http.Handler {
 	t.Helper()
-	return NewRouter(newTestService(t), newTestTaskService(t, fakeEngine(t, false).URL))
+	return newTestRouterWithConfig(t, Config{})
+}
+
+// newTestRouterWithConfig 组装完整路由并指定运行模式（如 none = 单用户本地模式）。
+func newTestRouterWithConfig(t *testing.T, cfg Config) http.Handler {
+	t.Helper()
+	return NewRouter(newTestService(t), newTestTaskService(t, fakeEngine(t, false).URL), cfg)
 }
 
 // registerAndLogin 注册并登录，返回 token。
@@ -192,7 +198,7 @@ func TestTaskFlow(t *testing.T) {
 
 func TestTaskEngineFailure(t *testing.T) {
 	// 引擎返回 422 → 任务 failed 且带错误消息
-	router := NewRouter(newTestService(t), newTestTaskService(t, fakeEngine(t, true).URL))
+	router := NewRouter(newTestService(t), newTestTaskService(t, fakeEngine(t, true).URL), Config{})
 	token := registerAndLogin(t, router, "bob")
 
 	rec := postTask(t, router, token, itoAgItoBody())
@@ -363,7 +369,7 @@ func TestCreateTaskUnknownKind(t *testing.T) {
 }
 
 func TestOptimizeTaskEngineFailure(t *testing.T) {
-	router := NewRouter(newTestService(t), newTestTaskService(t, fakeEngine(t, true).URL))
+	router := NewRouter(newTestService(t), newTestTaskService(t, fakeEngine(t, true).URL), Config{})
 	token := registerAndLogin(t, router, "bob")
 	rec := postTask(t, router, token, optimizeTaskBody())
 	if rec.Code != http.StatusAccepted {

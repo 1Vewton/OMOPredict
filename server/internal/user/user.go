@@ -10,3 +10,10 @@ type User struct {
 	PasswordHash string    `gorm:"size:255" json:"-"` // bcrypt 哈希，禁止出现在 JSON
 	CreatedAt    time.Time `json:"created_at"`
 }
+
+// LocalUserID 单用户（桌面）模式下的固定用户 ID。
+const LocalUserID = "local"
+
+// LocalUser 单用户模式下的固定用户：不落库、不参与认证，
+// 由认证中间件在 OMO_AUTH_MODE=none 时注入请求上下文（docs/desktop.md D10）。
+var LocalUser = &User{ID: LocalUserID, Username: LocalUserID}

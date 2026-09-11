@@ -16,6 +16,33 @@
 200 {"version":"0.1.0","go":"go1.25.0"}
 ```
 
+### `GET /api/meta` — 运行模式与能力声明（无需认证）
+
+```json
+200 {
+  "version": "0.1.0",
+  "auth_mode": "jwt",          // jwt | none
+  "auth_required": true,
+  "engine_transport": "http"   // http | stdio
+}
+```
+
+前端启动时读取该端点决定是否显示登录流程：`auth_required = false`（桌面本地模式）时
+跳过登录页与路由守卫、隐藏用户信息区。
+
+### 运行模式：`OMO_AUTH_MODE`（`jwt` 缺省 | `none`）
+
+| 模式 | 适用 | 行为 |
+|---|---|---|
+| `jwt`（默认） | Web 部署 | 现有行为：注册/登录签发 JWT；任务接口需 `Authorization: Bearer <token>` |
+| `none` | 桌面本地版（单用户） | **不做认证**：认证中间件注入固定本地用户（`id = username = "local"`），任务接口无需 token；`/api/auth/register` 与 `/api/auth/login` 返回 **401**（`auth disabled in single-user (local) mode`）；`/api/auth/me` 返回本地用户；任务 `user_id` 恒为 `"local"` |
+
+> ⚠️ `none` 仅应由桌面 Host 注入（`docs/desktop.md` D10）。Web 部署误设为 `none` 等于关闭认证；
+> 服务启动日志会显式打印当前模式。
+
+另有 `OMO_ENGINE_TRANSPORT`（`http` 缺省 | `stdio`）声明 Go→引擎 的传输方式，
+当前仅通过 `/api/meta` 透出，stdio 传输在 T3 落地。
+
 ## 用户认证
 
 ### `POST /api/auth/register` — 注册

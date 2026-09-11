@@ -37,13 +37,13 @@ func newTestService(t *testing.T) *user.Service {
 func doJSON(t *testing.T, r *http.Request) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	NewRouter(newTestService(t), newTestTaskService(t, fakeEngine(t, false).URL)).ServeHTTP(rec, r)
+	NewRouter(newTestService(t), newTestTaskService(t, fakeEngine(t, false).URL), Config{}).ServeHTTP(rec, r)
 	return rec
 }
 
 func TestRegisterLoginMeFlow(t *testing.T) {
 	svc := newTestService(t)
-	router := NewRouter(svc, newTestTaskService(t, fakeEngine(t, false).URL))
+	router := NewRouter(svc, newTestTaskService(t, fakeEngine(t, false).URL), Config{})
 
 	// 注册
 	reg := httptest.NewRequest(http.MethodPost, "/api/auth/register",
@@ -107,7 +107,7 @@ func TestRegisterLoginMeFlow(t *testing.T) {
 
 func TestLoginWrongPassword(t *testing.T) {
 	svc := newTestService(t)
-	router := NewRouter(svc, newTestTaskService(t, fakeEngine(t, false).URL))
+	router := NewRouter(svc, newTestTaskService(t, fakeEngine(t, false).URL), Config{})
 	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost,
 		"/api/auth/register", strings.NewReader(`{"username":"alice","password":"supersecret"}`)))
 

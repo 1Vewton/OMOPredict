@@ -24,6 +24,15 @@ import (
 
 func main() {
 	cfg := store.LoadConfig()
+	authMode, err := api.ParseAuthMode(os.Getenv("OMO_AUTH_MODE"))
+	if err != nil {
+		log.Fatalf("auth mode: %v", err)
+	}
+	engineTransport, err := api.ParseEngineTransport(os.Getenv("OMO_ENGINE_TRANSPORT"))
+	if err != nil {
+		log.Fatalf("engine transport: %v", err)
+	}
+
 	db, err := store.Open(cfg)
 	if err != nil {
 		log.Fatalf("open store: %v", err)
@@ -38,7 +47,7 @@ func main() {
 		log.Fatalf("migrate: %v", err)
 	}
 
-	userSvc := user.NewService(user.NewGORMStore(db), jwtSecret(), jwtTTL())
+	userSvc := user.NewService(user.NewGORMStore(db), jwtSecret(authMode), jwtTTL())
 	engine := task.NewEngineClient(engineURL())
 	taskSvc := task.NewService(task.NewGORMStore(db), engine)
 
@@ -47,13 +56,23 @@ func main() {
 		addr = ":8080"
 	}
 	srv := &http.Server{
-		Addr:         addr,
-		Handler:      api.NewRouter(userSvc, taskSvc),
+		Addr: addr,
+		Handler: api.NewRouter(userSvc, taskSvc, api.Config{
+			AuthMode:        authMode,
+			EngineTransport: engineTransport,
+		}),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
 
 	go func() {
+		// 显式打印运行模式：none 表示认证已关闭（仅桌面本地模式应使用）
+		if authMode == api.AuthModeNone {
+			log.Printf("auth mode: none —— 单用户本地模式（不做认证，任务归属 %q）", user.LocalUserID)
+		} else {
+			log.Printf("auth mode: jwt")
+		}
+		log.Printf("engine transport: %s", engineTransport)
 		log.Printf("omo server listening on %s", addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("server error: %v", err)
@@ -71,7 +90,12 @@ func main() {
 }
 
 // jwtSecret JWT 签名密钥；生产环境必须通过 OMO_JWT_SECRET 设置。
-func jwtSecret() []byte {
+//
+// 单用户模式（authMode = none）不需要 JWT，直接返回占位值且不告警。
+func jwtSecret(authMode api.AuthMode) []byte {
+	if authMode == api.AuthModeNone {
+		return []byte("unused-in-local-mode")
+	}
 	if s := os.Getenv("OMO_JWT_SECRET"); s != "" {
 		return []byte(s)
 	}

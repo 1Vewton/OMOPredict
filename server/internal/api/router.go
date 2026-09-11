@@ -19,16 +19,20 @@ import (
 var version = "0.1.0"
 
 // NewRouter 组装全部路由（Go 1.22+ 方法化模式）。
-func NewRouter(svc *user.Service, tasks *task.Service) http.Handler {
+//
+// cfg 控制运行模式（认证模式 / 版本 / 引擎传输方式）；零值等价于 Web 默认（jwt + http）。
+func NewRouter(svc *user.Service, tasks *task.Service, cfg Config) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /version", handleVersion)
+	mux.HandleFunc("GET /api/meta", metaHandler(cfg))
 
-	mux.HandleFunc("POST /api/auth/register", registerHandler(svc))
-	mux.HandleFunc("POST /api/auth/login", loginHandler(svc))
-	mux.Handle("GET /api/auth/me", authMiddleware(svc)(meHandler(svc)))
+	mode := cfg.authMode()
+	mux.HandleFunc("POST /api/auth/register", registerHandler(svc, mode))
+	mux.HandleFunc("POST /api/auth/login", loginHandler(svc, mode))
 
-	auth := authMiddleware(svc)
+	auth := authMiddleware(svc, mode)
+	mux.Handle("GET /api/auth/me", auth(meHandler(svc)))
 	mux.Handle("POST /api/tasks", auth(createTaskHandler(tasks)))
 	mux.Handle("GET /api/tasks", auth(listTasksHandler(tasks)))
 	mux.Handle("GET /api/tasks/{id}", auth(getTaskHandler(tasks)))
