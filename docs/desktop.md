@@ -376,7 +376,7 @@ OMOPredict/
 | 任务 | 状态 | 说明 / 验证 |
 |---|---|---|
 | T1 单用户模式 + meta | ✅ 完成 | `OMO_AUTH_MODE=jwt\|none`、固定本地用户注入、`GET /api/meta`；Go 新增 7 个用例全绿；本地模式端到端冒烟（无 token 建任务 → `user_id=local`、Rs=3.9708 与 Web 一致；认证接口 401）；jwt 模式回归通过 |
-| T2 任务删除 | ⏳ | 待做 |
+| T2 任务删除 | ✅ 完成 | `DELETE /api/tasks/{id}`（归属校验统一 404）+ `Store.Delete`；新增 6 个 api 用例（成功/反推任务/不存在/跨用户/未认证/本地模式）+ 1 个 store 用例（二次删除 ErrNotFound） |
 | T3 Go RPC 分发器 | ⏳ | 待做 |
 | T4 引擎编排下沉 + RPC 入口 | ⏳ | 待做 |
 | T5 前端传输抽象 + 门禁 | ⏳ | 待做 |

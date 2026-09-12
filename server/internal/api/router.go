@@ -36,6 +36,7 @@ func NewRouter(svc *user.Service, tasks *task.Service, cfg Config) http.Handler 
 	mux.Handle("POST /api/tasks", auth(createTaskHandler(tasks)))
 	mux.Handle("GET /api/tasks", auth(listTasksHandler(tasks)))
 	mux.Handle("GET /api/tasks/{id}", auth(getTaskHandler(tasks)))
+	mux.Handle("DELETE /api/tasks/{id}", auth(deleteTaskHandler(tasks)))
 	return withMiddleware(mux)
 }
 

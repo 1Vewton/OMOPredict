@@ -155,6 +155,20 @@
 200 {"tasks": [{"id":"...","kind":"optimize","status":"succeeded",...}, ...]}
 ```
 
+### `DELETE /api/tasks/{id}` — 删除任务（仅本人）
+
+任务与其结果一并删除（simulate 的 `result` 与 optimize 的 `optimize_result` 同属一行）。
+
+```json
+200 {"id": "<32位hex>", "deleted": true}
+```
+
+| 状态码 | 含义 |
+|---|---|
+| `200` | 删除成功 |
+| `404` | 任务不存在或非本人（统一 404，不泄露存在性） |
+| `401` | 未认证（`jwt` 模式） |
+
 ### 任务 curl 演示
 
 ```bash

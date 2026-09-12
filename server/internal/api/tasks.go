@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -82,6 +83,31 @@ func createTaskHandler(tasks *task.Service) http.HandlerFunc {
 	}
 }
 
+// errTaskNotFound 任务不存在或不属于当前用户（对外统一 404，不泄露存在性）。
+var errTaskNotFound = errors.New("task not found")
+
+// fetchOwnedTask 取任务并校验归属。
+//
+// 返回:
+//   - (task, nil)：存在且属于 userID
+//   - (nil, errTaskNotFound)：不存在或非本人（调用方回 404）
+//   - (nil, err)：存储层错误（调用方回 500）
+func fetchOwnedTask(
+	ctx context.Context, tasks *task.Service, userID, id string,
+) (*model.SimulationTask, error) {
+	t, err := tasks.Get(ctx, id)
+	if errors.Is(err, task.ErrNotFound) {
+		return nil, errTaskNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if t.UserID != userID {
+		return nil, errTaskNotFound
+	}
+	return t, nil
+}
+
 // getTaskHandler GET /api/tasks/{id} —— 查询任务状态与结果（仅本人可见）。
 func getTaskHandler(tasks *task.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -90,17 +116,54 @@ func getTaskHandler(tasks *task.Service) http.HandlerFunc {
 			writeError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		t, err := tasks.Get(r.Context(), r.PathValue("id"))
-		if errors.Is(err, task.ErrNotFound) || (err == nil && t.UserID != u.ID) {
-			// 不存在或非本人：统一 404（不泄露任务存在性）
+		t, err := fetchOwnedTask(r.Context(), tasks, u.ID, r.PathValue("id"))
+		switch {
+		case errors.Is(err, errTaskNotFound):
 			writeError(w, http.StatusNotFound, "task not found")
 			return
-		}
-		if err != nil {
+		case err != nil:
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, t)
+	}
+}
+
+// deleteTaskResponse DELETE /api/tasks/{id} 响应。
+type deleteTaskResponse struct {
+	ID      string `json:"id"`
+	Deleted bool   `json:"deleted"`
+}
+
+// deleteTaskHandler DELETE /api/tasks/{id} —— 删除任务（含结果，仅本人）。
+//
+// 任务不存在或非本人：统一 404（与 GET 同语义，不泄露存在性）。
+func deleteTaskHandler(tasks *task.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u, ok := userFromContext(r.Context())
+		if !ok {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		id := r.PathValue("id")
+		if _, err := fetchOwnedTask(r.Context(), tasks, u.ID, id); err != nil {
+			if errors.Is(err, errTaskNotFound) {
+				writeError(w, http.StatusNotFound, "task not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if err := tasks.Delete(r.Context(), id); err != nil {
+			if errors.Is(err, task.ErrNotFound) {
+				// 竞态：校验通过后被并发删除
+				writeError(w, http.StatusNotFound, "task not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, deleteTaskResponse{ID: id, Deleted: true})
 	}
 }
 

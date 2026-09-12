@@ -25,6 +25,7 @@ OMO（氧化物/金属/氧化物）纳米多层薄膜仿真设计软件：三层
 | M5 v2 API | ✅ | 引擎 `POST /optimize` 端点 + Go 任务模型泛化 `kind=simulate\|optimize`（`optimize_result` 原样持久化） | 6 引擎测试 + 5 Go 测试新增；真实端到端冒烟（建 optimize 任务→轮询→候选/FoM/灵敏度） |
 | M5 余/M6 | ⏳ | 前端"目标反推"页、报告导出、NN 代理加速 / 集成 | 待做 |
 | M6-a T1 | ✅ | 桌面版基础：单用户认证模式（`OMO_AUTH_MODE=none`）+ `GET /api/meta` 能力端点 | Go 全量测试（新增 7 用例）+ 本地模式端到端冒烟（无 token 建任务，`user_id=local`）+ jwt 模式回归 |
+| M6-a T2 | ✅ | 任务管理：`DELETE /api/tasks/{id}`（归属校验，两种 kind 均可删） | 新增 6 个 api 用例 + 1 个 store 用例（二次删除 ErrNotFound）；本地模式冒烟删除链路 |
 
 测试现状：Python **93 passed / ruff 0**（本机沙箱 4 个 tmp_path 用例报 PermissionError，属环境限制非代码问题）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流与单用户模式）；前端 `pnpm lint` 0 告警 + `vue-tsc -b` + `vite build` 通过。
 

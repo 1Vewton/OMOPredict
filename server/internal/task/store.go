@@ -27,6 +27,8 @@ type Store interface {
 	UpdateResult(ctx context.Context, id string, result *model.TaskResult) error
 	// UpdateOptimizeResult 写入目标反推结果（引擎报告 JSON 原样）并置为 succeeded。
 	UpdateOptimizeResult(ctx context.Context, id string, raw json.RawMessage) error
+	// Delete 删除任务（含结果列）；不存在返回 ErrNotFound。
+	Delete(ctx context.Context, id string) error
 }
 
 // GORMStore 基于 GORM 的任务存储（兼容 sqlite / mysql / postgres）。
@@ -107,6 +109,18 @@ func (s *GORMStore) UpdateOptimizeResult(ctx context.Context, id string, raw jso
 	t.Status = model.TaskSucceeded
 	t.UpdatedAt = nowUnix()
 	return s.db.WithContext(ctx).Save(t).Error
+}
+
+// Delete 删除任务（结果列随行删除）；不存在返回 ErrNotFound。
+func (s *GORMStore) Delete(ctx context.Context, id string) error {
+	res := s.db.WithContext(ctx).Delete(&model.SimulationTask{}, "id = ?", id)
+	if res.Error != nil {
+		return fmt.Errorf("task: delete: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func nowUnix() int64 {

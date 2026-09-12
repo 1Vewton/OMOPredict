@@ -68,6 +68,11 @@ func (s *Service) List(ctx context.Context, userID string) ([]model.SimulationTa
 	return s.store.List(ctx, userID)
 }
 
+// Delete 删除任务（含结果）；不存在返回 ErrNotFound。
+func (s *Service) Delete(ctx context.Context, id string) error {
+	return s.store.Delete(ctx, id)
+}
+
 // run 异步执行：running → 调引擎 → succeeded(failed)。
 func (s *Service) run(taskID string) {
 	ctx := context.Background()
