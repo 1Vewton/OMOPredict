@@ -18,6 +18,9 @@ import (
 // version 服务版本（可用 ldflags 注入）。
 var version = "0.1.0"
 
+// Version 返回服务版本（供 main 注入 RPC 配置与日志）。
+func Version() string { return version }
+
 // NewRouter 组装全部路由（Go 1.22+ 方法化模式）。
 //
 // cfg 控制运行模式（认证模式 / 版本 / 引擎传输方式）；零值等价于 Web 默认（jwt + http）。

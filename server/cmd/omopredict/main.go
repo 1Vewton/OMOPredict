@@ -1,13 +1,18 @@
-// omopredict —— OMOPredict 中间层：用户管理 / 数据存储 / 仿真任务编排。
+// omopredict —— OMOPredict 中间层：数据存储 / 仿真任务编排 / 对外 API。
+//
+// 两种运行形态（docs/desktop.md）：
+//   - HTTP（默认）：Web 部署形态，REST + JWT（`OMO_AUTH_MODE=jwt`）；
+//   - stdio（`--stdio`）：桌面形态，JSON-RPC over stdin/stdout，单用户本地模式（`OMO_AUTH_MODE=none`）。
 //
 // 职责边界（AGENTS.md §6 分层纪律）：
 //   - 本服务只做编排与存储，不包含物理公式（物理逻辑只在 Python 引擎层）；
-//   - 前端只与本服务通信；本服务通过 HTTP 调用 Python 引擎（omo.api）。
+//   - 引擎调用当前通过 HTTP（OMO_ENGINE_URL）；stdio 引擎传输见 docs/desktop.md T4。
 package main
 
 import (
 	"context"
 	"errors"
+	"flag"
 	"log"
 	"net/http"
 	"os"
@@ -17,12 +22,17 @@ import (
 
 	"github.com/1Vewton/OMOPredict/server/internal/api"
 	"github.com/1Vewton/OMOPredict/server/internal/model"
+	"github.com/1Vewton/OMOPredict/server/internal/rpc"
 	"github.com/1Vewton/OMOPredict/server/internal/store"
 	"github.com/1Vewton/OMOPredict/server/internal/task"
 	"github.com/1Vewton/OMOPredict/server/internal/user"
 )
 
 func main() {
+	stdio := flag.Bool("stdio", false,
+		"以 stdio JSON-RPC 模式运行（桌面版；需 OMO_AUTH_MODE=none）")
+	flag.Parse()
+
 	cfg := store.LoadConfig()
 	authMode, err := api.ParseAuthMode(os.Getenv("OMO_AUTH_MODE"))
 	if err != nil {
@@ -47,10 +57,21 @@ func main() {
 		log.Fatalf("migrate: %v", err)
 	}
 
-	userSvc := user.NewService(user.NewGORMStore(db), jwtSecret(authMode), jwtTTL())
-	engine := task.NewEngineClient(engineURL())
-	taskSvc := task.NewService(task.NewGORMStore(db), engine)
+	taskSvc := task.NewService(
+		task.NewGORMStore(db),
+		task.NewEngineClient(engineURL()),
+	)
+	if engineTransport == api.EngineTransportStdio {
+		log.Println("warning: OMO_ENGINE_TRANSPORT=stdio 尚未实现（docs/desktop.md T4），" +
+			"当前仍以 HTTP 调用引擎")
+	}
 
+	if *stdio {
+		runStdio(taskSvc, authMode, engineTransport)
+		return
+	}
+
+	userSvc := user.NewService(user.NewGORMStore(db), jwtSecret(authMode), jwtTTL())
 	addr := os.Getenv("OMO_SERVER_ADDR")
 	if addr == "" {
 		addr = ":8080"
@@ -59,6 +80,7 @@ func main() {
 		Addr: addr,
 		Handler: api.NewRouter(userSvc, taskSvc, api.Config{
 			AuthMode:        authMode,
+			Version:         api.Version(),
 			EngineTransport: engineTransport,
 		}),
 		ReadTimeout:  10 * time.Second,
@@ -66,12 +88,7 @@ func main() {
 	}
 
 	go func() {
-		// 显式打印运行模式：none 表示认证已关闭（仅桌面本地模式应使用）
-		if authMode == api.AuthModeNone {
-			log.Printf("auth mode: none —— 单用户本地模式（不做认证，任务归属 %q）", user.LocalUserID)
-		} else {
-			log.Printf("auth mode: jwt")
-		}
+		logAuthMode(authMode)
 		log.Printf("engine transport: %s", engineTransport)
 		log.Printf("omo server listening on %s", addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -87,6 +104,34 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
+}
+
+// runStdio 以 stdio JSON-RPC 形态运行（桌面版）：协议走 stdout，日志走 stderr。
+func runStdio(tasks *task.Service, authMode api.AuthMode, transport string) {
+	srv, err := rpc.NewServer(tasks, rpc.Config{
+		AuthMode:        authMode,
+		Version:         api.Version(),
+		EngineTransport: transport,
+	})
+	if err != nil {
+		log.Fatalf("stdio: %v", err)
+	}
+	logAuthMode(authMode)
+	log.Printf("engine transport: %s", transport)
+	log.Println("rpc mode: stdio（JSON-RPC over stdin/stdout；日志输出到 stderr）")
+	if err := srv.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
+		log.Fatalf("rpc: %v", err)
+	}
+	log.Println("stdin 已结束，退出")
+}
+
+// logAuthMode 显式打印运行模式：none 表示认证已关闭（仅桌面本地模式应使用）。
+func logAuthMode(authMode api.AuthMode) {
+	if authMode == api.AuthModeNone {
+		log.Printf("auth mode: none —— 单用户本地模式（不做认证，任务归属 %q）", user.LocalUserID)
+		return
+	}
+	log.Printf("auth mode: jwt")
 }
 
 // jwtSecret JWT 签名密钥；生产环境必须通过 OMO_JWT_SECRET 设置。

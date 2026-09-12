@@ -63,6 +63,18 @@ func (s *Service) Get(ctx context.Context, id string) (*model.SimulationTask, er
 	return s.store.Get(ctx, id)
 }
 
+// GetOwned 取任务并校验归属：不存在或非本人统一返回 ErrNotFound（不泄露存在性）。
+func (s *Service) GetOwned(ctx context.Context, userID, id string) (*model.SimulationTask, error) {
+	t, err := s.store.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if t.UserID != userID {
+		return nil, ErrNotFound
+	}
+	return t, nil
+}
+
 // List 列出某用户的任务。
 func (s *Service) List(ctx context.Context, userID string) ([]model.SimulationTask, error) {
 	return s.store.List(ctx, userID)
@@ -70,6 +82,14 @@ func (s *Service) List(ctx context.Context, userID string) ([]model.SimulationTa
 
 // Delete 删除任务（含结果）；不存在返回 ErrNotFound。
 func (s *Service) Delete(ctx context.Context, id string) error {
+	return s.store.Delete(ctx, id)
+}
+
+// DeleteOwned 删除任务（先校验归属）；不存在或非本人统一 ErrNotFound。
+func (s *Service) DeleteOwned(ctx context.Context, userID, id string) error {
+	if _, err := s.GetOwned(ctx, userID, id); err != nil {
+		return err
+	}
 	return s.store.Delete(ctx, id)
 }
 

@@ -1,51 +1,34 @@
 package api
 
-import (
-	"fmt"
-	"strings"
-)
+import "github.com/1Vewton/OMOPredict/server/internal/mode"
 
+// 认证模式与引擎传输方式的取值/解析集中在中立的 internal/mode 包
+// （HTTP 与 stdio RPC 共用，避免两套定义漂移）；此处以别名暴露，保持既有调用点不变。
+//
 // AuthMode 认证模式（OMO_AUTH_MODE）。
-type AuthMode string
+type AuthMode = mode.AuthMode
 
 const (
 	// AuthModeJWT 多用户 + JWT（Web 部署默认）。
-	AuthModeJWT AuthMode = "jwt"
+	AuthModeJWT = mode.JWT
 	// AuthModeNone 单用户本地模式（桌面版）：不做认证，所有任务归属固定本地用户。
 	// 仅应由桌面 Host 注入；Web 部署误设为 none 等于关闭认证（docs/desktop.md D10）。
-	AuthModeNone AuthMode = "none"
-)
+	AuthModeNone = mode.None
 
-// 引擎传输方式（OMO_ENGINE_TRANSPORT）。
-const (
 	// EngineTransportHTTP 通过 HTTP 调用引擎（Web/开发模式默认）。
-	EngineTransportHTTP = "http"
-	// EngineTransportStdio 通过 stdio JSON-RPC 调用引擎（桌面模式，T3 落地）。
-	EngineTransportStdio = "stdio"
+	EngineTransportHTTP = mode.TransportHTTP
+	// EngineTransportStdio 通过 stdio JSON-RPC 调用引擎（桌面模式）。
+	EngineTransportStdio = mode.TransportStdio
 )
 
-// ParseAuthMode 解析 OMO_AUTH_MODE；空值与大小写不敏感，非法值报错。
+// ParseAuthMode 解析 OMO_AUTH_MODE（见 mode.ParseAuthMode）。
 func ParseAuthMode(v string) (AuthMode, error) {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "", string(AuthModeJWT):
-		return AuthModeJWT, nil
-	case string(AuthModeNone):
-		return AuthModeNone, nil
-	default:
-		return "", fmt.Errorf("api: 非法 OMO_AUTH_MODE %q（可选 jwt | none）", v)
-	}
+	return mode.ParseAuthMode(v)
 }
 
-// ParseEngineTransport 解析 OMO_ENGINE_TRANSPORT；空值默认 http。
+// ParseEngineTransport 解析 OMO_ENGINE_TRANSPORT（见 mode.ParseEngineTransport）。
 func ParseEngineTransport(v string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "", EngineTransportHTTP:
-		return EngineTransportHTTP, nil
-	case EngineTransportStdio:
-		return EngineTransportStdio, nil
-	default:
-		return "", fmt.Errorf("api: 非法 OMO_ENGINE_TRANSPORT %q（可选 http | stdio）", v)
-	}
+	return mode.ParseEngineTransport(v)
 }
 
 // Config 路由装配配置（零值等价于 Web 默认：jwt + http）。
@@ -82,4 +65,9 @@ func (c Config) engineTransport() string {
 // authRequired 是否需要客户端认证（供 /api/meta 与前端门禁使用）。
 func (c Config) authRequired() bool {
 	return c.authMode() != AuthModeNone
+}
+
+// meta 能力声明（与 RPC `meta` 方法同一结构，见 mode.Meta）。
+func (c Config) meta() mode.Meta {
+	return mode.NewMeta(c.version(), c.authMode(), c.engineTransport())
 }

@@ -6,13 +6,17 @@ package store
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"os"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"github.com/joho/godotenv"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // 支持的数据库驱动。
@@ -26,6 +30,11 @@ const (
 type Config struct {
 	Driver string // sqlite | mysql | postgres
 	DSN    string // 连接串
+	// LogWriter GORM 日志输出目标；nil 表示 os.Stderr。
+	//
+	// 必须避开 stdout：stdio JSON-RPC 模式（桌面版）下 stdout 是协议流，
+	// GORM 默认写 stdout 会把 SQL 日志混进 JSON 行、破坏协议（实测踩过）。
+	LogWriter io.Writer
 }
 
 // LoadConfig 从 .env（可选，缺失不报错）与环境变量读取配置。
@@ -68,11 +77,31 @@ func Open(cfg Config) (*gorm.DB, error) {
 	}
 	// TranslateError: 让驱动把唯一约束等错误翻译为 gorm 哨兵
 	// （如 ErrDuplicatedKey），供上层 errors.Is 判定。
-	db, err := gorm.Open(dialector, &gorm.Config{TranslateError: true})
+	db, err := gorm.Open(dialector, &gorm.Config{
+		TranslateError: true,
+		Logger:         newGORMLogger(cfg.LogWriter),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("store: open %s: %w", cfg.Driver, err)
 	}
 	return db, nil
+}
+
+// newGORMLogger 构造 GORM 日志器：默认写 stderr（绝不写 stdout，原因见 Config.LogWriter）。
+//
+// 级别 Warn：只输出慢查询与错误（含 record not found），保持日志简洁。
+func newGORMLogger(w io.Writer) logger.Interface {
+	if w == nil {
+		w = os.Stderr
+	}
+	return logger.New(
+		log.New(w, "", log.LstdFlags),
+		logger.Config{
+			SlowThreshold: 200 * time.Millisecond,
+			LogLevel:      logger.Warn,
+			Colorful:      false,
+		},
+	)
 }
 
 // Migrate 执行模型自动迁移（建表 / 加列）。

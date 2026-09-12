@@ -377,7 +377,7 @@ OMOPredict/
 |---|---|---|
 | T1 单用户模式 + meta | ✅ 完成 | `OMO_AUTH_MODE=jwt\|none`、固定本地用户注入、`GET /api/meta`；Go 新增 7 个用例全绿；本地模式端到端冒烟（无 token 建任务 → `user_id=local`、Rs=3.9708 与 Web 一致；认证接口 401）；jwt 模式回归通过 |
 | T2 任务删除 | ✅ 完成 | `DELETE /api/tasks/{id}`（归属校验统一 404）+ `Store.Delete`；新增 6 个 api 用例（成功/反推任务/不存在/跨用户/未认证/本地模式）+ 1 个 store 用例（二次删除 ErrNotFound） |
-| T3 Go RPC 分发器 | ⏳ | 待做 |
+| T3 Go RPC 分发器 | ✅ 完成 | `internal/rpc`：JSON-Lines + JSON-RPC 2.0、方法路由（ping/meta/tasks.*，复用 service 层）、错误码=HTTP 语义（协议错误用保留码）、`--stdio` 开关；抽出 `internal/mode`、`task.CreateRequest`、`GetOwned/DeleteOwned` 作为 HTTP/RPC 单一来源；新增 rpc 12 用例 + 契约一致性 5 用例；**真实 stdio 会话冒烟**（真实引擎 Rs=3.9708、删除后 404、四行全为合法 JSON） |
 | T4 引擎编排下沉 + RPC 入口 | ⏳ | 待做 |
 | T5 前端传输抽象 + 门禁 | ⏳ | 待做 |
 | T6 Host 层 | ⏳ | 待做 |

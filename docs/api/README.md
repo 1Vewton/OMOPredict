@@ -11,8 +11,9 @@ OMOPredict 三层架构的接口契约文档：
 
 | 文档 | 内容 |
 |---|---|
-| [`rest.md`](rest.md) | **对外 REST API**（Go 中间层）：认证接口、请求/响应示例、错误码、curl 演示 |
-| [`engine.md`](engine.md) | **引擎契约**（Go → Python `omo.api /simulate`）：请求/响应、材料注册表、默认网格 |
+| [`rest.md`](rest.md) | **对外 REST API**（Go 中间层，Web 形态）：认证接口、运行模式（`/api/meta`）、请求/响应示例、错误码、curl 演示 |
+| [`engine.md`](engine.md) | **引擎契约**（Go → Python `omo.api /simulate`、`/optimize`）：请求/响应、材料注册表、默认网格 |
+| [`rpc.md`](rpc.md) | **stdio JSON-RPC 契约**（桌面形态：Electron ↔ Go）：协议、方法与 HTTP 端点映射、错误码、单用户模式 |
 
 ## 通用约定（所有接口）
 
@@ -27,9 +28,13 @@ OMOPredict 三层架构的接口契约文档：
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `OMO_SERVER_ADDR` | `:8080` | Go 服务监听地址 |
+| `OMO_SERVER_ADDR` | `:8080` | Go 服务监听地址（HTTP 形态） |
 | `OMO_DB_DRIVER` | `sqlite` | `sqlite` \| `mysql` \| `postgres` |
 | `OMO_DB_DSN` | `omopredict.db` | 数据库连接串 |
-| `OMO_JWT_SECRET` | 开发默认（生产必须设置） | JWT 签名密钥 |
+| `OMO_JWT_SECRET` | 开发默认（生产必须设置） | JWT 签名密钥（`jwt` 模式） |
 | `OMO_JWT_TTL` | `24h` | 令牌有效期 |
-| `OMO_ENGINE_URL` | `http://127.0.0.1:8000` | Python 引擎地址（任务编排调用 /simulate） |
+| `OMO_ENGINE_URL` | `http://127.0.0.1:8000` | Python 引擎地址（HTTP 引擎传输） |
+| `OMO_AUTH_MODE` | `jwt` | `jwt`（Web）\| `none`（桌面单用户，固定归属 `local`） |
+| `OMO_ENGINE_TRANSPORT` | `http` | `http`（当前实现）\| `stdio`（桌面，T4 落地） |
+
+命令行：`omopredict --stdio` 以 stdio JSON-RPC 形态运行（需 `OMO_AUTH_MODE=none`，契约见 [`rpc.md`](rpc.md)）。

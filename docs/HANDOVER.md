@@ -26,6 +26,7 @@ OMO（氧化物/金属/氧化物）纳米多层薄膜仿真设计软件：三层
 | M5 余/M6 | ⏳ | 前端"目标反推"页、报告导出、NN 代理加速 / 集成 | 待做 |
 | M6-a T1 | ✅ | 桌面版基础：单用户认证模式（`OMO_AUTH_MODE=none`）+ `GET /api/meta` 能力端点 | Go 全量测试（新增 7 用例）+ 本地模式端到端冒烟（无 token 建任务，`user_id=local`）+ jwt 模式回归 |
 | M6-a T2 | ✅ | 任务管理：`DELETE /api/tasks/{id}`（归属校验，两种 kind 均可删） | 新增 6 个 api 用例 + 1 个 store 用例（二次删除 ErrNotFound）；本地模式冒烟删除链路 |
+| M6-a T3 | ✅ | stdio JSON-RPC 分发器（`internal/rpc` + `omopredict --stdio`）：ping/meta/tasks.*、错误码=HTTP 语义、`internal/mode`/`task.CreateRequest`/`GetOwned` 作为两传输单一来源 | 新增 rpc 12 用例 + 契约一致性 5 用例（HTTP↔RPC 载荷逐字段比对）；真实 stdio 会话冒烟通过；顺带修复 **GORM 默认日志写 stdout 破坏协议** 的坑（见 §6.15） |
 
 测试现状：Python **93 passed / ruff 0**（本机沙箱 4 个 tmp_path 用例报 PermissionError，属环境限制非代码问题）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流与单用户模式）；前端 `pnpm lint` 0 告警 + `vue-tsc -b` + `vite build` 通过。
 
@@ -79,7 +80,7 @@ task（engine 客户端 + **kind=simulate\|optimize 异步编排**）。
 | `AGENTS.md` | 项目宪法：架构/物理模型/守则/里程碑 |
 | `docs/physics/{tmm,electrical,emi}.md` | 物理模型与公式来源 |
 | `docs/benchmarks/README.md` + `calibration.md` | 数据集格式 + 校准方法/结果 |
-| `docs/api/README.md` + `rest.md` + `engine.md` | API 契约（对外 REST / Go→Python） |
+| `docs/api/README.md` + `rest.md` + `engine.md` + `rpc.md` | API 契约（对外 REST / Go→Python 引擎 / 桌面 stdio JSON-RPC） |
 | `engine/README.md`、`server/README.md`、`frontend/README.md`、各包 README | 层与包说明 |
 
 ## 6. 环境与已知坑（续接前必读）
@@ -113,6 +114,13 @@ task（engine 客户端 + **kind=simulate\|optimize 异步编排**）。
 13. **Vite 绑定**：dev server 绑定 IPv6 `::1`，浏览器/联调用 `http://localhost:5173`（127.0.0.1 不通）。
 14. **前端类型检查**：`vue-tsc` 须用 `-b`（build 模式）才会真正检查引用项目（`--noEmit` 直接跑会静默跳过）；
     模板字符串 `ref="x"` 不计为 setup 变量读取（TS6133），组件容器 ref 请传入 composable 并在 JS 中读取。
+15. **stdout 是协议流（stdio 模式）**：`omopredict --stdio` 下 stdout 只允许 JSON-RPC 行。
+    **GORM 默认把日志写 stdout**，会把 SQL 日志混进协议流（实测导致 `tasks.get` 响应被日志行挤掉）；
+    已在 `store.Config.LogWriter` 中默认改为 stderr，并有回归测试守护。
+    新增任何依赖/日志时都要确认不往 stdout 打印（含第三方库默认行为）。
+16. **stdio 冒烟要用长驻会话**：PowerShell 的管道（`& { ... } | exe`）不是流式交互，会把多行一次性喂完并立即 EOF，
+    导致异步任务随进程退出而停留在 `pending`。验证异步链路请用 .NET `Process` 保持 stdin 打开（见 T3 冒烟脚本思路），
+    或直接用 `internal/rpc` 的单测（内部 `Serve` + 真实 SQLite/假引擎）。
 
 ## 7. 未完成事项与后续计划
 
