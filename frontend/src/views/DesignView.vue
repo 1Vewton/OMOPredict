@@ -4,12 +4,14 @@ import { useRouter } from 'vue-router'
 import { ApiError } from '@/api/http'
 import { tasksApi } from '@/api/tasks'
 import HelpTip from '@/components/HelpTip.vue'
+import { KNOWN_MATERIALS, isKnownMaterial, knownMaterialsText } from '@/content/materials'
+import { parseNumberInput } from '@/utils/number'
 import type { Layer } from '@/types'
 
 const router = useRouter()
 
-// 引擎材料注册表建议（omo.materials）；也可输入自定义材料名（引擎校验）
-const MATERIAL_SUGGESTIONS = ['ITO', 'Ag', 'glass']
+// 引擎材料注册表（与后端同源，见 content/materials.ts）
+const MATERIAL_SUGGESTIONS = KNOWN_MATERIALS
 
 interface LayerRow {
   material: string
@@ -81,17 +83,25 @@ function validate(): string | null {
     return '至少需要一层膜'
   }
   for (const [i, l] of layers.entries()) {
-    if (!l.material.trim()) {
+    const material = l.material.trim()
+    if (!material) {
       return `第 ${i + 1} 层：材料不能为空`
     }
-    const t = Number(l.thickness)
-    if (l.thickness.trim() === '' || !Number.isFinite(t) || t < 0) {
-      return `第 ${i + 1} 层：厚度需为 ≥ 0 的数值（nm）`
+    if (!isKnownMaterial(material)) {
+      return `第 ${i + 1} 层：材料「${material}」不被引擎支持（可选：${knownMaterialsText()}）`
+    }
+    const t = parseNumberInput(l.thickness)
+    if (t === null) {
+      return `第 ${i + 1} 层：厚度需为数值（nm），如 40、40.5 或 40 nm`
+    }
+    if (t < 0) {
+      return `第 ${i + 1} 层：厚度不能为负（nm）`
     }
   }
-  const sub = Number(substrateIndex.value)
-  if (!Number.isFinite(sub) || sub <= 0) {
-    return '衬底折射率需为正数'
+  // 衬底折射率：留空 = 用引擎默认（1.5）
+  const sub = parseNumberInput(substrateIndex.value)
+  if (sub !== null && sub <= 0) {
+    return '衬底折射率需为正数（留空则用默认 1.5）'
   }
   return null
 }
@@ -105,13 +115,14 @@ async function submit(): Promise<void> {
   }
   submitting.value = true
   try {
+    const sub = parseNumberInput(substrateIndex.value)
     const task = await tasksApi.create({
       name: taskName.value.trim() || undefined,
       layers: layers.map((l) => ({
         material: l.material.trim(),
-        thickness_nm: Number(l.thickness),
+        thickness_nm: parseNumberInput(l.thickness) ?? 0,
       })),
-      substrate_index: Number(substrateIndex.value),
+      substrate_index: sub ?? undefined, // 留空 → 引擎默认 1.5
     })
     router.push({ name: 'task-detail', params: { id: task.id } })
   } catch (e) {
@@ -126,122 +137,123 @@ async function submit(): Promise<void> {
   <div>
     <h2 class="page-title">参数设计</h2>
 
-    <div class="section">
-      <div class="card">
-        <div class="card-title">常用体系模板</div>
-        <div class="preset-row">
-          <button
-            v-for="p in PRESETS"
-            :key="p.name"
-            type="button"
-            class="btn btn-ghost preset-btn"
-            @click="applyPreset(p)"
-          >
-            {{ p.name }}
-          </button>
+    <!-- 包成 form：支持在任意输入框按回车提交（并统一走 submit 校验） -->
+    <form @submit.prevent="submit">
+      <div class="section">
+        <div class="card">
+          <div class="card-title">常用体系模板</div>
+          <div class="preset-row">
+            <button
+              v-for="p in PRESETS"
+              :key="p.name"
+              type="button"
+              class="btn btn-ghost preset-btn"
+              @click="applyPreset(p)"
+            >
+              {{ p.name }}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div class="section">
-      <div class="card">
-        <div class="card-title">膜层结构（入射侧 → 出射侧）</div>
+      <div class="section">
+        <div class="card">
+          <div class="card-title">膜层结构（入射侧 → 出射侧）</div>
 
-        <div class="field">
-          <label for="task-name">任务名称（可选）</label>
-          <input
-            id="task-name"
-            v-model="taskName"
-            class="input"
-            type="text"
-            placeholder="例如：ITO-Ag-ITO 40-10-40"
-          />
-        </div>
+          <div class="field">
+            <label for="task-name">任务名称（可选）</label>
+            <input
+              id="task-name"
+              v-model="taskName"
+              class="input"
+              type="text"
+              placeholder="例如：ITO-Ag-ITO 40-10-40"
+            />
+          </div>
 
-        <table class="table">
-          <thead>
-            <tr>
-              <th class="th-id">#<HelpTip k="design.order" placement="right" /></th>
-              <th>材料<HelpTip k="design.material" /></th>
-              <th style="width: 220px">厚度（nm）<HelpTip k="design.thickness" /></th>
-              <th style="width: 80px"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(layer, i) in layers" :key="i">
-              <td class="muted">{{ i + 1 }}</td>
-              <td>
-                <input
-                  v-model="layer.material"
-                  class="input input-sm"
-                  type="text"
-                  list="material-suggestions"
-                  placeholder="ITO / Ag / glass"
-                />
-              </td>
-              <td>
-                <input
-                  v-model="layer.thickness"
-                  class="input input-sm"
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  placeholder="≥ 0"
-                />
-              </td>
-              <td>
-                <button
-                  class="btn btn-danger btn-sm"
-                  type="button"
-                  :disabled="layers.length <= 1"
-                  @click="removeLayer(i)"
-                >
-                  删除
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <datalist id="material-suggestions">
-          <option v-for="m in MATERIAL_SUGGESTIONS" :key="m" :value="m"></option>
-        </datalist>
+          <table class="table">
+            <thead>
+              <tr>
+                <th class="th-id">#<HelpTip k="design.order" placement="right" /></th>
+                <th>材料<HelpTip k="design.material" /></th>
+                <th style="width: 220px">厚度（nm）<HelpTip k="design.thickness" /></th>
+                <th style="width: 80px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(layer, i) in layers" :key="i">
+                <td class="muted">{{ i + 1 }}</td>
+                <td>
+                  <input
+                    v-model="layer.material"
+                    class="input input-sm"
+                    type="text"
+                    list="material-suggestions"
+                    placeholder="ITO / Ag / glass"
+                  />
+                </td>
+                <td>
+                  <input
+                    v-model="layer.thickness"
+                    class="input input-sm"
+                    type="number"
+                    min="0"
+                    step="any"
+                    inputmode="decimal"
+                    placeholder="如 40 / 40.5"
+                  />
+                </td>
+                <td>
+                  <button
+                    class="btn btn-danger btn-sm"
+                    type="button"
+                    :disabled="layers.length <= 1"
+                    @click="removeLayer(i)"
+                  >
+                    删除
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <datalist id="material-suggestions">
+            <option v-for="m in MATERIAL_SUGGESTIONS" :key="m" :value="m"></option>
+          </datalist>
 
-        <div class="row-actions">
-          <button class="btn btn-ghost" type="button" @click="addLayer">+ 添加层</button>
-        </div>
+          <div class="row-actions">
+            <button class="btn btn-ghost" type="button" @click="addLayer">+ 添加层</button>
+          </div>
 
-        <div class="field mt-16 substrate-field">
-          <label for="substrate-index">衬底折射率<HelpTip k="design.substrate" /></label>
-          <input
-            id="substrate-index"
-            v-model.number="substrateIndex"
-            class="input"
-            type="number"
-            min="1"
-            step="0.05"
-          />
-          <span class="muted">默认 1.5（玻璃）</span>
+          <div class="field mt-16 substrate-field">
+            <label for="substrate-index">衬底折射率<HelpTip k="design.substrate" /></label>
+            <input
+              id="substrate-index"
+              v-model="substrateIndex"
+              class="input"
+              type="number"
+              min="0"
+              step="any"
+              inputmode="decimal"
+              placeholder="留空 = 1.5"
+            />
+            <span class="muted">默认 1.5（玻璃），留空即用默认</span>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div v-if="error" class="alert alert-error">{{ error }}</div>
+      <div v-if="error" class="alert alert-error" role="alert" aria-live="polite">{{ error }}</div>
 
-    <div class="card submit-card">
-      <div class="submit-info">
-        <span class="muted">结构预览：</span>
-        <span>{{ summary || '（空）' }}</span>
+      <div class="card submit-card">
+        <div class="submit-info">
+          <span class="muted">结构预览：</span>
+          <span>{{ summary || '（空）' }}</span>
+        </div>
+        <button class="btn btn-primary submit-btn" type="submit" :disabled="submitting">
+          <span v-if="submitting" class="spinner"></span>
+          提交仿真
+        </button>
       </div>
-      <button
-        class="btn btn-primary submit-btn"
-        type="button"
-        :disabled="submitting"
-        @click="submit"
-      >
-        <span v-if="submitting" class="spinner"></span>
-        提交仿真
-      </button>
-    </div>
+    </form>
   </div>
 </template>
 

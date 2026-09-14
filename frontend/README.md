@@ -60,3 +60,9 @@ src/
 - 字段命名 snake_case，与 `docs/api/rest.md` 契约一致（AGENTS.md §6.7）
 - **分层纪律**：前端不计算物理量，只渲染后端返回的 T(λ)/R(λ)/Rs/SE(f)
 - 认证失效（401）统一跳转登录页
+- **数值输入容错**：一律用 `utils/number.ts` 的 `parseNumberInput` 取数（支持全角、`10,5` 小数逗号、
+  `1,500` 千分位、粘贴带单位或百分号如 `40 nm` / `85%` / `12 Ω/sq`）
+- **提交前前置校验**：材料白名单（`content/materials.ts`，与引擎注册表同源）、
+  步长/候选数/SE 频带合法性、扫描组合数上限（`MAX_COMBINATIONS`，超限给出耗时预估与建议），
+  避免"提交后才失败"；不使用原生 `confirm/alert`（嵌入式 webview 可能禁用），改用内联提示
+- 表单包在 `<form @submit.prevent>` 内，输入框按回车即可提交
