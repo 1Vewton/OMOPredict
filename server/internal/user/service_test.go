@@ -33,10 +33,12 @@ func newTestStore(t *testing.T) *GORMStore {
 
 func newTestService(t *testing.T) *Service {
 	t.Helper()
-	return NewService(newTestStore(t), []byte("test-secret"), time.Hour)
+	// 测试用最低 bcrypt 成本：仍走完整哈希/校验路径，但把 ~60ms/次 降到 ~1ms
+	return NewService(newTestStore(t), []byte("test-secret"), time.Hour, WithBcryptCost(bcrypt.MinCost))
 }
 
 func TestRegisterHashesPassword(t *testing.T) {
+	t.Parallel()
 	svc := newTestService(t)
 	u, err := svc.Register(context.Background(), "alice", "supersecret")
 	if err != nil {
@@ -54,6 +56,7 @@ func TestRegisterHashesPassword(t *testing.T) {
 }
 
 func TestRegisterDuplicate(t *testing.T) {
+	t.Parallel()
 	svc := newTestService(t)
 	ctx := context.Background()
 	if _, err := svc.Register(ctx, "alice", "supersecret"); err != nil {
@@ -65,6 +68,7 @@ func TestRegisterDuplicate(t *testing.T) {
 }
 
 func TestRegisterValidation(t *testing.T) {
+	t.Parallel()
 	svc := newTestService(t)
 	ctx := context.Background()
 	if _, err := svc.Register(ctx, "ab", "supersecret"); !errors.Is(err, ErrInvalidUsername) {
@@ -79,6 +83,7 @@ func TestRegisterValidation(t *testing.T) {
 }
 
 func TestLogin(t *testing.T) {
+	t.Parallel()
 	svc := newTestService(t)
 	ctx := context.Background()
 	if _, err := svc.Register(ctx, "alice", "supersecret"); err != nil {
@@ -100,6 +105,7 @@ func TestLogin(t *testing.T) {
 }
 
 func TestVerifyToken(t *testing.T) {
+	t.Parallel()
 	svc := newTestService(t)
 	ctx := context.Background()
 	registered, err := svc.Register(ctx, "alice", "supersecret")
@@ -128,8 +134,10 @@ func TestVerifyToken(t *testing.T) {
 }
 
 func TestTokenExpiry(t *testing.T) {
+	t.Parallel()
 	store := newTestStore(t)
-	svc := NewService(store, []byte("test-secret"), -time.Minute) // 已过期
+	// 已过期；同样用最低成本加速
+	svc := NewService(store, []byte("test-secret"), -time.Minute, WithBcryptCost(bcrypt.MinCost))
 	ctx := context.Background()
 	if _, err := svc.Register(ctx, "alice", "supersecret"); err != nil {
 		t.Fatalf("register: %v", err)

@@ -6,6 +6,7 @@ import (
 )
 
 func TestTaskResultJSONRoundTrip(t *testing.T) {
+	t.Parallel()
 	rs := 3.97
 	in := TaskResult{
 		TaskID:          "task-1",
@@ -33,6 +34,7 @@ func TestTaskResultJSONRoundTrip(t *testing.T) {
 }
 
 func TestLayerSnakeCaseKeys(t *testing.T) {
+	t.Parallel()
 	layer := Layer{Material: "ITO", Thickness: 40}
 	data, err := json.Marshal(layer)
 	if err != nil {

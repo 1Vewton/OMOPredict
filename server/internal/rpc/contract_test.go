@@ -103,6 +103,7 @@ func httpCall(
 
 // TestMetaParity meta：HTTP 与 RPC 返回逐字段一致。
 func TestMetaParity(t *testing.T) {
+	t.Parallel()
 	router, srv := setupPeers(t)
 	code, httpMeta := httpCall(t, router, http.MethodGet, "/api/meta", "")
 	if code != http.StatusOK {
@@ -127,6 +128,7 @@ func taskComparable(m map[string]any) map[string]any {
 
 // TestCreateTaskParity tasks.create：同一请求体，HTTP 与 RPC 结果字段一致。
 func TestCreateTaskParity(t *testing.T) {
+	t.Parallel()
 	router, srv := setupPeers(t)
 
 	simPayload := map[string]any{
@@ -162,6 +164,7 @@ func TestCreateTaskParity(t *testing.T) {
 
 // TestValidationErrorParity 校验失败：HTTP 400 的 error 文本与 RPC 400 的 message 相同。
 func TestValidationErrorParity(t *testing.T) {
+	t.Parallel()
 	router, srv := setupPeers(t)
 	body := `{"layers":[]}`
 
@@ -181,6 +184,7 @@ func TestValidationErrorParity(t *testing.T) {
 
 // TestNotFoundParity 不存在的任务：两侧同为 404 且消息一致。
 func TestNotFoundParity(t *testing.T) {
+	t.Parallel()
 	router, srv := setupPeers(t)
 	const missing = "no-such-task"
 
@@ -200,6 +204,7 @@ func TestNotFoundParity(t *testing.T) {
 
 // TestDeleteParity tasks.delete：两侧响应结构一致。
 func TestDeleteParity(t *testing.T) {
+	t.Parallel()
 	router, srv := setupPeers(t)
 	payload := map[string]any{
 		"name":   "待删",

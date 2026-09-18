@@ -11,6 +11,7 @@ import (
 
 	"github.com/1Vewton/OMOPredict/server/internal/store"
 	"github.com/1Vewton/OMOPredict/server/internal/user"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // newTestService 用临时 SQLite 库（GORM）构造用户服务。
@@ -31,7 +32,11 @@ func newTestService(t *testing.T) *user.Service {
 			_ = sqlDB.Close()
 		}
 	})
-	return user.NewService(user.NewGORMStore(db), []byte("test-secret"), time.Hour)
+	// 测试用最低 bcrypt 成本：仍走完整哈希/校验路径，但大幅缩短注册/登录耗时
+	return user.NewService(
+		user.NewGORMStore(db), []byte("test-secret"), time.Hour,
+		user.WithBcryptCost(bcrypt.MinCost),
+	)
 }
 
 func doJSON(t *testing.T, r *http.Request) *httptest.ResponseRecorder {
@@ -42,6 +47,7 @@ func doJSON(t *testing.T, r *http.Request) *httptest.ResponseRecorder {
 }
 
 func TestRegisterLoginMeFlow(t *testing.T) {
+	t.Parallel()
 	svc := newTestService(t)
 	router := NewRouter(svc, newTestTaskService(t, fakeEngine(t, false).URL), Config{})
 
@@ -106,6 +112,7 @@ func TestRegisterLoginMeFlow(t *testing.T) {
 }
 
 func TestLoginWrongPassword(t *testing.T) {
+	t.Parallel()
 	svc := newTestService(t)
 	router := NewRouter(svc, newTestTaskService(t, fakeEngine(t, false).URL), Config{})
 	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost,
@@ -120,6 +127,7 @@ func TestLoginWrongPassword(t *testing.T) {
 }
 
 func TestRegisterWeakPassword400(t *testing.T) {
+	t.Parallel()
 	rec := doJSON(t, httptest.NewRequest(http.MethodPost, "/api/auth/register",
 		strings.NewReader(`{"username":"alice","password":"short"}`)))
 	if rec.Code != http.StatusBadRequest {
@@ -128,6 +136,7 @@ func TestRegisterWeakPassword400(t *testing.T) {
 }
 
 func TestRegisterBadJSON400(t *testing.T) {
+	t.Parallel()
 	rec := doJSON(t, httptest.NewRequest(http.MethodPost, "/api/auth/register",
 		strings.NewReader(`{not json`)))
 	if rec.Code != http.StatusBadRequest {

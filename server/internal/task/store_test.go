@@ -33,6 +33,7 @@ func newTestTaskStore(t *testing.T) *GORMStore {
 
 // TestGORMStoreDelete 删除语义：成功后不可再查，重复删除返回 ErrNotFound。
 func TestGORMStoreDelete(t *testing.T) {
+	t.Parallel()
 	s := newTestTaskStore(t)
 	ctx := context.Background()
 

@@ -54,6 +54,7 @@ func listTaskCount(t *testing.T, router http.Handler, token string) int {
 
 // TestTaskDeleteFlow 删除成功：200 → 之后 GET 404、列表为空。
 func TestTaskDeleteFlow(t *testing.T) {
+	t.Parallel()
 	router := newTestRouter(t)
 	token := registerAndLogin(t, router, "alice")
 
@@ -84,6 +85,7 @@ func TestTaskDeleteFlow(t *testing.T) {
 
 // TestTaskDeleteOptimizeKind 反推任务同样可删除。
 func TestTaskDeleteOptimizeKind(t *testing.T) {
+	t.Parallel()
 	router := newTestRouter(t)
 	token := registerAndLogin(t, router, "alice")
 
@@ -102,6 +104,7 @@ func TestTaskDeleteOptimizeKind(t *testing.T) {
 
 // TestTaskDeleteNotFound 不存在的 ID → 404。
 func TestTaskDeleteNotFound(t *testing.T) {
+	t.Parallel()
 	router := newTestRouter(t)
 	token := registerAndLogin(t, router, "alice")
 	if code := deleteTask(t, router, token, "does-not-exist").Code; code != http.StatusNotFound {
@@ -111,6 +114,7 @@ func TestTaskDeleteNotFound(t *testing.T) {
 
 // TestTaskDeleteOwnership 他人任务 → 404，且原任务不受影响。
 func TestTaskDeleteOwnership(t *testing.T) {
+	t.Parallel()
 	router := newTestRouter(t)
 	tokenA := registerAndLogin(t, router, "alice")
 	tokenB := registerAndLogin(t, router, "bob")
@@ -140,6 +144,7 @@ func TestTaskDeleteOwnership(t *testing.T) {
 
 // TestTaskDeleteUnauthorized jwt 模式无 token → 401。
 func TestTaskDeleteUnauthorized(t *testing.T) {
+	t.Parallel()
 	router := newTestRouter(t)
 	if code := deleteTask(t, router, "", "any-id").Code; code != http.StatusUnauthorized {
 		t.Fatalf("无 token 删除 status = %d, want 401", code)
@@ -148,6 +153,7 @@ func TestTaskDeleteUnauthorized(t *testing.T) {
 
 // TestLocalModeTaskDelete 单用户本地模式：无需 token 即可删除。
 func TestLocalModeTaskDelete(t *testing.T) {
+	t.Parallel()
 	router := newTestRouterWithConfig(t, Config{AuthMode: AuthModeNone})
 
 	rec := postTask(t, router, "", itoAgItoBody())

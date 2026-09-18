@@ -29,15 +29,37 @@ var (
 
 // Service 用户服务：注册 / 登录 / 令牌验证。
 type Service struct {
-	store  Store
-	secret []byte
-	ttl    time.Duration
+	store      Store
+	secret     []byte
+	ttl        time.Duration
+	bcryptCost int
+}
+
+// Option 服务构造选项。
+type Option func(*Service)
+
+// WithBcryptCost 覆盖 bcrypt 成本（默认 bcrypt.DefaultCost = 10）。
+//
+// 用途：测试与低算力环境（如 bcrypt.MinCost = 4）。成本是安全参数而非业务行为，
+// 降低后注册/登录更快，仍完整走 bcrypt 哈希与校验路径。非法值忽略（保持默认）。
+func WithBcryptCost(cost int) Option {
+	return func(s *Service) {
+		if cost < bcrypt.MinCost || cost > bcrypt.MaxCost {
+			return
+		}
+		s.bcryptCost = cost
+	}
 }
 
 // NewService 构造用户服务。
-// secret 为 JWT 签名密钥（HS256）；ttl 为令牌有效期。
-func NewService(store Store, secret []byte, ttl time.Duration) *Service {
-	return &Service{store: store, secret: secret, ttl: ttl}
+//
+// secret 为 JWT 签名密钥（HS256）；ttl 为令牌有效期；opts 为可选配置（如 WithBcryptCost）。
+func NewService(store Store, secret []byte, ttl time.Duration, opts ...Option) *Service {
+	s := &Service{store: store, secret: secret, ttl: ttl, bcryptCost: bcrypt.DefaultCost}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // claims JWT 载荷。
@@ -58,7 +80,7 @@ func (s *Service) Register(ctx context.Context, username, password string) (*Use
 	if len(password) < MinPasswordLen {
 		return nil, ErrWeakPassword
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), s.bcryptCost)
 	if err != nil {
 		return nil, fmt.Errorf("user: hash: %w", err)
 	}

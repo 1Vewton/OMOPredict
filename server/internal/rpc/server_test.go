@@ -142,6 +142,7 @@ func resultMap(t *testing.T, r Response) map[string]any {
 }
 
 func TestPingAndMeta(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, mode.None, mode.TransportHTTP)
 	resps := serve(t, s,
 		line(t, request(1, "ping", nil)),
@@ -173,11 +174,11 @@ func getTaskResult(t *testing.T, s *Server, id string) (map[string]any, *Error) 
 	return resultMap(t, resp), nil
 }
 
-// waitSucceeded 轮询任务直到 succeeded（假引擎立即返回）。
+// waitSucceeded 轮询任务直到 succeeded（假引擎立即返回；立即首查 + 5ms 间隔）。
 func waitSucceeded(t *testing.T, s *Server, id string) map[string]any {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
+	for {
 		res, rpcErr := getTaskResult(t, s, id)
 		if rpcErr != nil {
 			t.Fatalf("tasks.get 失败: %+v", rpcErr)
@@ -185,10 +186,11 @@ func waitSucceeded(t *testing.T, s *Server, id string) map[string]any {
 		if res["status"] == string(model.TaskSucceeded) {
 			return res
 		}
-		time.Sleep(20 * time.Millisecond)
+		if time.Now().After(deadline) {
+			t.Fatalf("任务 %s 未在期限内完成", id)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("任务 %s 未在期限内完成", id)
-	return nil
 }
 
 // simulateParams 一个合法的正向仿真请求参数。
@@ -205,6 +207,7 @@ func simulateParams(name string) map[string]any {
 
 // TestTaskLifecycleOverStdio 创建 → 查询 → 完成 → 领取结果 → 删除 → 404。
 func TestTaskLifecycleOverStdio(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, mode.None, mode.TransportHTTP)
 
 	created := resultMap(t, serve(t, s,
@@ -249,6 +252,7 @@ func TestTaskLifecycleOverStdio(t *testing.T) {
 
 // TestCreateValidationErrors 校验失败 → 400（消息与 HTTP 一致，由 task.CreateRequest 统一产出）。
 func TestCreateValidationErrors(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, mode.None, mode.TransportHTTP)
 	cases := []struct {
 		name    string
@@ -276,6 +280,7 @@ func TestCreateValidationErrors(t *testing.T) {
 
 // TestOptimizeKindOverStdio 反推任务（kind=optimize）在 stdio 下同样可用。
 func TestOptimizeKindOverStdio(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, mode.None, mode.TransportHTTP)
 	params := map[string]any{
 		"kind": "optimize",
@@ -297,6 +302,7 @@ func TestOptimizeKindOverStdio(t *testing.T) {
 
 // TestProtocolErrors 协议错误使用 JSON-RPC 保留码。
 func TestProtocolErrors(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, mode.None, mode.TransportHTTP)
 
 	// 非法 JSON → -32700
@@ -323,6 +329,7 @@ func TestProtocolErrors(t *testing.T) {
 
 // TestAuthMethodsDisabled stdio 固定单用户：认证方法一律 401（与 HTTP none 模式一致）。
 func TestAuthMethodsDisabled(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, mode.None, mode.TransportHTTP)
 	for _, m := range []string{"auth.register", "auth.login", "auth.me"} {
 		err := serve(t, s, line(t, request(1, m, nil)))[0].Error
@@ -337,6 +344,7 @@ func TestAuthMethodsDisabled(t *testing.T) {
 
 // TestNotificationNoResponse 无 id 的行是通知：执行但不回复。
 func TestNotificationNoResponse(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, mode.None, mode.TransportHTTP)
 	var out bytes.Buffer
 	if err := s.Serve(context.Background(),
@@ -350,6 +358,7 @@ func TestNotificationNoResponse(t *testing.T) {
 
 // TestNewServerRejectsJWTModes stdio 不支持 jwt 模式（无 HTTP 头可承载 token）。
 func TestNewServerRejectsJWTModes(t *testing.T) {
+	t.Parallel()
 	db, err := store.Open(store.Config{
 		Driver: store.DriverSQLite,
 		DSN:    filepath.Join(t.TempDir(), "x.db"),
@@ -370,6 +379,7 @@ func TestNewServerRejectsJWTModes(t *testing.T) {
 
 // TestLongLineAccepted 大参数（数百 KB）不触发扫描器上限（optimize 报告同理）。
 func TestLongLineAccepted(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, mode.None, mode.TransportHTTP)
 	longName := strings.Repeat("x", 200_000)
 	params := map[string]any{

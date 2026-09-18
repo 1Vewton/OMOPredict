@@ -62,6 +62,16 @@ go run ./cmd/omopredict   # 启动（默认 :8080，读取 .env）
 > 中国大陆网络提示：Go 默认模块代理 proxy.golang.org 可能不通，
 > 建议 `$env:GOPROXY = "https://goproxy.cn,direct"` 后拉取依赖。
 
+### 测试速度约定（新增测试请沿用）
+
+- **`t.Parallel()`**：互不共享状态的用例都加（本项目 59 处）。注意
+  `t.Setenv` 与 `t.Parallel()` 互斥（会 panic）——`store` 包的配置解析用例因此保持串行。
+- **bcrypt 成本**：测试用 `user.WithBcryptCost(bcrypt.MinCost)`（仍走完整哈希/校验路径，
+  但把每次 ~60ms 降到 ~1ms）；生产保持 `bcrypt.DefaultCost`。
+- **异步任务轮询**：`waitForTask` / `waitSucceeded` 立即首查 + 5ms 间隔（勿用固定 `sleep`）。
+- **测量注意**：本沙箱下 `go test -v` 的输出经 PowerShell 管道捕获会显著放大耗时
+  （曾误测出 api 包 9.6s，实际 1.9s）；测速请用 `go test ./... -count=1` 并计时墙钟。
+
 ## 分层纪律（AGENTS.md §6.6）
 
 - 本层**不含物理公式**：物理逻辑只在 Python 引擎（`engine/`），本层通过 HTTP 调用

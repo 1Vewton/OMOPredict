@@ -8,6 +8,7 @@ import (
 )
 
 func TestHealth(t *testing.T) {
+	t.Parallel()
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
 	NewRouter(newTestService(t), newTestTaskService(t, fakeEngine(t, false).URL), Config{}).ServeHTTP(rec, req)
@@ -28,6 +29,7 @@ func TestHealth(t *testing.T) {
 }
 
 func TestVersion(t *testing.T) {
+	t.Parallel()
 	req := httptest.NewRequest(http.MethodGet, "/version", nil)
 	rec := httptest.NewRecorder()
 	NewRouter(newTestService(t), newTestTaskService(t, fakeEngine(t, false).URL), Config{}).ServeHTTP(rec, req)
@@ -45,6 +47,7 @@ func TestVersion(t *testing.T) {
 }
 
 func TestUnknownRoute404(t *testing.T) {
+	t.Parallel()
 	req := httptest.NewRequest(http.MethodGet, "/nope", nil)
 	rec := httptest.NewRecorder()
 	NewRouter(newTestService(t), newTestTaskService(t, fakeEngine(t, false).URL), Config{}).ServeHTTP(rec, req)
@@ -54,6 +57,7 @@ func TestUnknownRoute404(t *testing.T) {
 }
 
 func TestMethodNotAllowed(t *testing.T) {
+	t.Parallel()
 	req := httptest.NewRequest(http.MethodPost, "/health", nil)
 	rec := httptest.NewRecorder()
 	NewRouter(newTestService(t), newTestTaskService(t, fakeEngine(t, false).URL), Config{}).ServeHTTP(rec, req)

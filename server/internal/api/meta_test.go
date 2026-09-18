@@ -28,6 +28,7 @@ func getMeta(t *testing.T, router http.Handler) metaResponse {
 
 // TestMetaDefaultJWTMode 默认（Web）模式：需要认证、引擎走 http。
 func TestMetaDefaultJWTMode(t *testing.T) {
+	t.Parallel()
 	m := getMeta(t, newTestRouter(t))
 	if m.AuthMode != string(AuthModeJWT) {
 		t.Fatalf("auth_mode = %q, want jwt", m.AuthMode)
@@ -45,6 +46,7 @@ func TestMetaDefaultJWTMode(t *testing.T) {
 
 // TestMetaLocalMode 桌面本地模式：不需要认证、引擎走 stdio、版本可覆盖。
 func TestMetaLocalMode(t *testing.T) {
+	t.Parallel()
 	router := newTestRouterWithConfig(t, Config{
 		AuthMode:        AuthModeNone,
 		EngineTransport: EngineTransportStdio,
@@ -64,6 +66,7 @@ func TestMetaLocalMode(t *testing.T) {
 
 // TestAuthEndpointsDisabledInLocalMode 本地模式下认证接口关闭：注册/登录 401，me 返回本地用户。
 func TestAuthEndpointsDisabledInLocalMode(t *testing.T) {
+	t.Parallel()
 	router := newTestRouterWithConfig(t, Config{AuthMode: AuthModeNone})
 
 	for _, path := range []string{"/api/auth/register", "/api/auth/login"} {
@@ -96,6 +99,7 @@ func TestAuthEndpointsDisabledInLocalMode(t *testing.T) {
 // TestLocalModeTaskFlowWithoutToken 本地模式下无需任何 token 即可创建/轮询/列出任务，
 // 且任务归属固定本地用户。
 func TestLocalModeTaskFlowWithoutToken(t *testing.T) {
+	t.Parallel()
 	router := newTestRouterWithConfig(t, Config{AuthMode: AuthModeNone})
 
 	// 创建（不带 Authorization 头）

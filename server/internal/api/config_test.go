@@ -3,6 +3,7 @@ package api
 import "testing"
 
 func TestParseAuthMode(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in      string
 		want    AuthMode
@@ -30,6 +31,7 @@ func TestParseAuthMode(t *testing.T) {
 }
 
 func TestParseEngineTransport(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in      string
 		want    string
@@ -55,6 +57,7 @@ func TestParseEngineTransport(t *testing.T) {
 }
 
 func TestConfigDefaults(t *testing.T) {
+	t.Parallel()
 	// 零值 = Web 默认（jwt + http + 需要认证）
 	web := Config{}
 	if web.authMode() != AuthModeJWT {

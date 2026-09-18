@@ -124,10 +124,12 @@ func registerAndLogin(t *testing.T, router http.Handler, username string) string
 }
 
 // waitForTask 轮询任务直到达到目标状态（异步执行用）。
+//
+// 立即首查 + 5ms 间隔（任务通常毫秒级完成，避免固定 sleep 拖慢测试）。
 func waitForTask(t *testing.T, router http.Handler, token, id string, want model.TaskStatus) *model.SimulationTask {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
+	for {
 		req := httptest.NewRequest(http.MethodGet, "/api/tasks/"+id, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		rec := httptest.NewRecorder()
@@ -142,10 +144,11 @@ func waitForTask(t *testing.T, router http.Handler, token, id string, want model
 		if out.Status == want {
 			return &out
 		}
-		time.Sleep(20 * time.Millisecond)
+		if time.Now().After(deadline) {
+			t.Fatalf("任务 %s 未在期限内到达 %s", id, want)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("任务 %s 未在期限内到达 %s", id, want)
-	return nil
 }
 
 // postTask 带 token 创建任务。
@@ -166,6 +169,7 @@ func itoAgItoBody() string {
 }
 
 func TestTaskFlow(t *testing.T) {
+	t.Parallel()
 	router := newTestRouter(t)
 	token := registerAndLogin(t, router, "alice")
 
@@ -197,6 +201,7 @@ func TestTaskFlow(t *testing.T) {
 }
 
 func TestTaskEngineFailure(t *testing.T) {
+	t.Parallel()
 	// 引擎返回 422 → 任务 failed 且带错误消息
 	router := NewRouter(newTestService(t), newTestTaskService(t, fakeEngine(t, true).URL), Config{})
 	token := registerAndLogin(t, router, "bob")
@@ -215,6 +220,7 @@ func TestTaskEngineFailure(t *testing.T) {
 }
 
 func TestTaskOwnership(t *testing.T) {
+	t.Parallel()
 	router := newTestRouter(t)
 	tokenA := registerAndLogin(t, router, "alice")
 	tokenB := registerAndLogin(t, router, "bob")
@@ -243,6 +249,7 @@ func TestTaskOwnership(t *testing.T) {
 }
 
 func TestTaskList(t *testing.T) {
+	t.Parallel()
 	router := newTestRouter(t)
 	token := registerAndLogin(t, router, "alice")
 
@@ -270,6 +277,7 @@ func TestTaskList(t *testing.T) {
 }
 
 func TestCreateTaskEmptyLayers(t *testing.T) {
+	t.Parallel()
 	router := newTestRouter(t)
 	token := registerAndLogin(t, router, "alice")
 	req := httptest.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(`{"layers":[]}`))
@@ -282,6 +290,7 @@ func TestCreateTaskEmptyLayers(t *testing.T) {
 }
 
 func TestTaskUnauthorized(t *testing.T) {
+	t.Parallel()
 	router := newTestRouter(t)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/tasks",
@@ -301,6 +310,7 @@ func optimizeTaskBody() string {
 
 // TestOptimizeTaskFlow kind=optimize：202 → 轮询 succeeded → optimize_result 为引擎报告 JSON。
 func TestOptimizeTaskFlow(t *testing.T) {
+	t.Parallel()
 	router := newTestRouter(t)
 	token := registerAndLogin(t, router, "alice")
 
@@ -351,6 +361,7 @@ func TestOptimizeTaskFlow(t *testing.T) {
 }
 
 func TestOptimizeTaskMissingSpec(t *testing.T) {
+	t.Parallel()
 	router := newTestRouter(t)
 	token := registerAndLogin(t, router, "alice")
 	rec := postTask(t, router, token, `{"kind":"optimize"}`)
@@ -360,6 +371,7 @@ func TestOptimizeTaskMissingSpec(t *testing.T) {
 }
 
 func TestCreateTaskUnknownKind(t *testing.T) {
+	t.Parallel()
 	router := newTestRouter(t)
 	token := registerAndLogin(t, router, "alice")
 	rec := postTask(t, router, token, `{"kind":"scan","layers":[{"material":"ITO","thickness_nm":40}]}`)
@@ -369,6 +381,7 @@ func TestCreateTaskUnknownKind(t *testing.T) {
 }
 
 func TestOptimizeTaskEngineFailure(t *testing.T) {
+	t.Parallel()
 	router := NewRouter(newTestService(t), newTestTaskService(t, fakeEngine(t, true).URL), Config{})
 	token := registerAndLogin(t, router, "bob")
 	rec := postTask(t, router, token, optimizeTaskBody())
@@ -385,6 +398,7 @@ func TestOptimizeTaskEngineFailure(t *testing.T) {
 
 // TestTaskSimulateKindDefault 兼容：不带 kind 的任务按 simulate 处理。
 func TestTaskSimulateKindDefault(t *testing.T) {
+	t.Parallel()
 	router := newTestRouter(t)
 	token := registerAndLogin(t, router, "alice")
 	rec := postTask(t, router, token, itoAgItoBody())
