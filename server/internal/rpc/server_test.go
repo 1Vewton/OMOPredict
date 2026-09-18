@@ -7,14 +7,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/1Vewton/OMOPredict/server/internal/mode"
 	"github.com/1Vewton/OMOPredict/server/internal/model"
-	"github.com/1Vewton/OMOPredict/server/internal/store"
+	"github.com/1Vewton/OMOPredict/server/internal/store/storetest"
 	"github.com/1Vewton/OMOPredict/server/internal/task"
 )
 
@@ -46,26 +45,12 @@ func fakeEngine(t *testing.T) *httptest.Server {
 	return srv
 }
 
-// newTestServerWithEngine 用临时 SQLite 库 + 指定引擎地址构造 RPC 服务。
+// newTestServerWithEngine 用内存 SQLite + 指定引擎地址构造 RPC 服务。
 func newTestServerWithEngine(
 	t *testing.T, authMode mode.AuthMode, transport, engineURL string,
 ) *Server {
 	t.Helper()
-	db, err := store.Open(store.Config{
-		Driver: store.DriverSQLite,
-		DSN:    filepath.Join(t.TempDir(), "rpc.db"),
-	})
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	if err := store.Migrate(db, &model.SimulationTask{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	t.Cleanup(func() {
-		if sqlDB, cerr := db.DB(); cerr == nil {
-			_ = sqlDB.Close()
-		}
-	})
+	db := storetest.OpenMemory(t, &model.SimulationTask{})
 	tasks := task.NewService(task.NewGORMStore(db), task.NewEngineClient(engineURL))
 	srv, err := NewServer(tasks, Config{
 		AuthMode:        authMode,
@@ -359,18 +344,7 @@ func TestNotificationNoResponse(t *testing.T) {
 // TestNewServerRejectsJWTModes stdio 不支持 jwt 模式（无 HTTP 头可承载 token）。
 func TestNewServerRejectsJWTModes(t *testing.T) {
 	t.Parallel()
-	db, err := store.Open(store.Config{
-		Driver: store.DriverSQLite,
-		DSN:    filepath.Join(t.TempDir(), "x.db"),
-	})
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() {
-		if sqlDB, cerr := db.DB(); cerr == nil {
-			_ = sqlDB.Close()
-		}
-	})
+	db := storetest.OpenMemory(t, &model.SimulationTask{})
 	tasks := task.NewService(task.NewGORMStore(db), task.NewEngineClient("http://127.0.0.1:1"))
 	if _, err := NewServer(tasks, Config{AuthMode: mode.JWT}); err == nil {
 		t.Fatal("jwt 模式应被拒绝")

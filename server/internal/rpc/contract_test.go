@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,31 +12,16 @@ import (
 	"github.com/1Vewton/OMOPredict/server/internal/api"
 	"github.com/1Vewton/OMOPredict/server/internal/mode"
 	"github.com/1Vewton/OMOPredict/server/internal/model"
-	"github.com/1Vewton/OMOPredict/server/internal/store"
+	"github.com/1Vewton/OMOPredict/server/internal/store/storetest"
 	"github.com/1Vewton/OMOPredict/server/internal/task"
 	"github.com/1Vewton/OMOPredict/server/internal/user"
 	"gorm.io/gorm"
 )
 
-// newTestDB 建一个临时 SQLite 库并迁移 users + tasks 表。
-func newTestDB(t *testing.T, name string) *gorm.DB {
+// newTestDB 内存 SQLite + 迁移 users/tasks 表（每个测试实例独立，见 storetest）。
+func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := store.Open(store.Config{
-		Driver: store.DriverSQLite,
-		DSN:    filepath.Join(t.TempDir(), name),
-	})
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	if err := store.Migrate(db, &user.User{}, &model.SimulationTask{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	t.Cleanup(func() {
-		if sqlDB, cerr := db.DB(); cerr == nil {
-			_ = sqlDB.Close()
-		}
-	})
-	return db
+	return storetest.OpenMemory(t, &user.User{}, &model.SimulationTask{})
 }
 
 // setupPeers 构造共享同一假引擎的 HTTP（本地模式）与 RPC 两个传输端。
@@ -47,7 +31,7 @@ func setupPeers(t *testing.T) (http.Handler, *Server) {
 	t.Helper()
 	engine := fakeEngine(t)
 
-	dbHTTP := newTestDB(t, "http.db")
+	dbHTTP := newTestDB(t)
 	users := user.NewService(user.NewGORMStore(dbHTTP), []byte("test-secret"), time.Hour)
 	tasksHTTP := task.NewService(task.NewGORMStore(dbHTTP), task.NewEngineClient(engine.URL))
 	router := api.NewRouter(users, tasksHTTP, api.Config{
@@ -56,7 +40,7 @@ func setupPeers(t *testing.T) (http.Handler, *Server) {
 		EngineTransport: api.EngineTransportHTTP,
 	})
 
-	dbRPC := newTestDB(t, "rpc.db")
+	dbRPC := newTestDB(t)
 	tasksRPC := task.NewService(task.NewGORMStore(dbRPC), task.NewEngineClient(engine.URL))
 	srv, err := NewServer(tasksRPC, Config{
 		AuthMode:        mode.None,

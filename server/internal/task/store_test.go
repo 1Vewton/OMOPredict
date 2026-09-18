@@ -3,32 +3,16 @@ package task
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 
 	"github.com/1Vewton/OMOPredict/server/internal/model"
-	"github.com/1Vewton/OMOPredict/server/internal/store"
+	"github.com/1Vewton/OMOPredict/server/internal/store/storetest"
 )
 
-// newTestTaskStore 用临时 SQLite 库构造任务存储。
+// newTestTaskStore 用内存 SQLite 构造任务存储（见 internal/store/storetest）。
 func newTestTaskStore(t *testing.T) *GORMStore {
 	t.Helper()
-	db, err := store.Open(store.Config{
-		Driver: store.DriverSQLite,
-		DSN:    filepath.Join(t.TempDir(), "tasks.db"),
-	})
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	if err := store.Migrate(db, &model.SimulationTask{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	t.Cleanup(func() {
-		if sqlDB, cerr := db.DB(); cerr == nil {
-			_ = sqlDB.Close()
-		}
-	})
-	return NewGORMStore(db)
+	return NewGORMStore(storetest.OpenMemory(t, &model.SimulationTask{}))
 }
 
 // TestGORMStoreDelete 删除语义：成功后不可再查，重复删除返回 ErrNotFound。

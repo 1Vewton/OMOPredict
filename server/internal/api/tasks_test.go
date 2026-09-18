@@ -4,13 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/1Vewton/OMOPredict/server/internal/model"
-	"github.com/1Vewton/OMOPredict/server/internal/store"
+	"github.com/1Vewton/OMOPredict/server/internal/store/storetest"
 	"github.com/1Vewton/OMOPredict/server/internal/task"
 )
 
@@ -66,24 +65,10 @@ func fakeEngine(t *testing.T, fail bool) *httptest.Server {
 	return srv
 }
 
-// newTestTaskService 用临时 SQLite 库 + 指定引擎地址构造任务服务。
+// newTestTaskService 用内存 SQLite + 指定引擎地址构造任务服务。
 func newTestTaskService(t *testing.T, engineURL string) *task.Service {
 	t.Helper()
-	db, err := store.Open(store.Config{
-		Driver: store.DriverSQLite,
-		DSN:    filepath.Join(t.TempDir(), "tasks.db"),
-	})
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	if err := store.Migrate(db, &model.SimulationTask{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	t.Cleanup(func() {
-		if sqlDB, cerr := db.DB(); cerr == nil {
-			_ = sqlDB.Close()
-		}
-	})
+	db := storetest.OpenMemory(t, &model.SimulationTask{})
 	return task.NewService(task.NewGORMStore(db), task.NewEngineClient(engineURL))
 }
 

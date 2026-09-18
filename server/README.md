@@ -64,6 +64,9 @@ go run ./cmd/omopredict   # 启动（默认 :8080，读取 .env）
 
 ### 测试速度约定（新增测试请沿用）
 
+- **内存 SQLite**：测试统一用 `storetest.OpenMemory(t, models...)`（`internal/store/storetest`）——
+  进程内私有内存库，无落盘、无文件锁，比临时文件库快约 24%（api 包 2.10s → 1.59s）。
+  文件 DSN 的生产行为由 `internal/store` 自身测试保障（`TestOpenSQLiteAndMigrate`、`TestOpenMemorySQLite`）。
 - **`t.Parallel()`**：互不共享状态的用例都加（本项目 59 处）。注意
   `t.Setenv` 与 `t.Parallel()` 互斥（会 panic）——`store` 包的配置解析用例因此保持串行。
 - **bcrypt 成本**：测试用 `user.WithBcryptCost(bcrypt.MinCost)`（仍走完整哈希/校验路径，
@@ -71,6 +74,11 @@ go run ./cmd/omopredict   # 启动（默认 :8080，读取 .env）
 - **异步任务轮询**：`waitForTask` / `waitSucceeded` 立即首查 + 5ms 间隔（勿用固定 `sleep`）。
 - **测量注意**：本沙箱下 `go test -v` 的输出经 PowerShell 管道捕获会显著放大耗时
   （曾误测出 api 包 9.6s，实际 1.9s）；测速请用 `go test ./... -count=1` 并计时墙钟。
+  另注：每个测试二进制的启动在本沙箱约 0.2–0.3s（CI 上不存在），因此单包成绩会含这部分固定开销。
+
+**参考成绩**（本机，热缓存）：全量 `go test ./... -count=1` ≈ 1.9–2.6s；
+`go test ./internal/api ./internal/rpc -count=3`（真正执行 6 轮）仅 0.26s / 0.19s
+——即测试执行本身已接近零成本，墙钟主要由编译与进程启动构成。
 
 ## 分层纪律（AGENTS.md §6.6）
 

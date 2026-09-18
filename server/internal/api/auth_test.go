@@ -4,34 +4,19 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/1Vewton/OMOPredict/server/internal/store"
+	"github.com/1Vewton/OMOPredict/server/internal/store/storetest"
 	"github.com/1Vewton/OMOPredict/server/internal/user"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// newTestService 用临时 SQLite 库（GORM）构造用户服务。
+// newTestService 用内存 SQLite（见 internal/store/storetest）构造用户服务。
 func newTestService(t *testing.T) *user.Service {
 	t.Helper()
-	db, err := store.Open(store.Config{
-		Driver: store.DriverSQLite,
-		DSN:    filepath.Join(t.TempDir(), "test.db"),
-	})
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	if err := store.Migrate(db, &user.User{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	t.Cleanup(func() {
-		if sqlDB, cerr := db.DB(); cerr == nil {
-			_ = sqlDB.Close()
-		}
-	})
+	db := storetest.OpenMemory(t, &user.User{})
 	// 测试用最低 bcrypt 成本：仍走完整哈希/校验路径，但大幅缩短注册/登录耗时
 	return user.NewService(
 		user.NewGORMStore(db), []byte("test-secret"), time.Hour,

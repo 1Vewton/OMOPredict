@@ -3,32 +3,17 @@ package user
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/1Vewton/OMOPredict/server/internal/store"
+	"github.com/1Vewton/OMOPredict/server/internal/store/storetest"
 	"golang.org/x/crypto/bcrypt"
 )
 
+// newTestStore 用内存 SQLite 构造用户存储（见 internal/store/storetest）。
 func newTestStore(t *testing.T) *GORMStore {
 	t.Helper()
-	db, err := store.Open(store.Config{
-		Driver: store.DriverSQLite,
-		DSN:    filepath.Join(t.TempDir(), "test.db"),
-	})
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	if err := store.Migrate(db, &User{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	t.Cleanup(func() {
-		if sqlDB, cerr := db.DB(); cerr == nil {
-			_ = sqlDB.Close()
-		}
-	})
-	return NewGORMStore(db)
+	return NewGORMStore(storetest.OpenMemory(t, &User{}))
 }
 
 func newTestService(t *testing.T) *Service {
