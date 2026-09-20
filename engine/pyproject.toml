@@ -5,13 +5,22 @@ description = "OMO 纳米多层薄膜轻量化仿真与设计软件 —— 数�
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.141.1",
-    "matplotlib>=3.11.1",
     "numpy>=2.5.2",
     "scipy>=1.18.1",
-    "torch>=2.13.0",
+]
+
+# 可选依赖（按形态安装；桌面引擎只需基础依赖，见 docs/desktop.md D4）：
+#   api    —— HTTP 服务（FastAPI）与请求模型（pydantic）；Web/开发形态
+#   neural —— NN 代理模型（torch）；桌面完整包会排除
+#   plot   —— 对标报告绘图（matplotlib）
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.141.1",
+    "pydantic>=2.0",
     "uvicorn[standard]>=0.52.4",
 ]
+neural = ["torch>=2.13.0"]
+plot = ["matplotlib>=3.11.1"]
 
 [project.scripts]
 omo-cli = "omo.cli.main:main"

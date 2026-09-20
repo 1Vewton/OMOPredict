@@ -27,8 +27,9 @@ OMO（氧化物/金属/氧化物）纳米多层薄膜仿真设计软件：三层
 | M6-a T1 | ✅ | 桌面版基础：单用户认证模式（`OMO_AUTH_MODE=none`）+ `GET /api/meta` 能力端点 | Go 全量测试（新增 7 用例）+ 本地模式端到端冒烟（无 token 建任务，`user_id=local`）+ jwt 模式回归 |
 | M6-a T2 | ✅ | 任务管理：`DELETE /api/tasks/{id}`（归属校验，两种 kind 均可删） | 新增 6 个 api 用例 + 1 个 store 用例（二次删除 ErrNotFound）；本地模式冒烟删除链路 |
 | M6-a T3 | ✅ | stdio JSON-RPC 分发器（`internal/rpc` + `omopredict --stdio`）：ping/meta/tasks.*、错误码=HTTP 语义、`internal/mode`/`task.CreateRequest`/`GetOwned` 作为两传输单一来源 | 新增 rpc 12 用例 + 契约一致性 5 用例（HTTP↔RPC 载荷逐字段比对）；真实 stdio 会话冒烟通过；顺带修复 **GORM 默认日志写 stdout 破坏协议** 的坑（见 §6.15） |
+| M6-a T4 | ✅ | 引擎侧：中立编排层 `omo.sim`（Web/桌面共用）+ `omo/rpc`（stdio JSON-RPC 入口）+ 可选依赖化（extras: api/neural/plot，基础仅 numpy/scipy） | 新增 35 测试（sim 领域校验 10 + rpc 协议/一致性 25），含 **import 图测试**（子进程断言不导入 torch/matplotlib/fastapi/uvicorn/pydantic）与 RPC↔HTTP 载荷一致性；python 全量 128 passed |
 
-测试现状：Python **93 passed / ruff 0**（本机沙箱 4 个 tmp_path 用例报 PermissionError，属环境限制非代码问题）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流与单用户模式）；前端 `pnpm lint` 0 告警 + `vue-tsc -b` + `vite build` 通过。
+测试现状：Python **128 passed / ruff 0**（本机沙箱 4 个 tmp_path 用例报 PermissionError，属环境限制非代码问题）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流与单用户模式）；前端 `pnpm lint` 0 告警 + `vue-tsc -b` + `vite build` 通过。
 
 ## 3. 三层架构与启动
 
@@ -121,6 +122,12 @@ task（engine 客户端 + **kind=simulate\|optimize 异步编排**）。
 16. **stdio 冒烟要用长驻会话**：PowerShell 的管道（`& { ... } | exe`）不是流式交互，会把多行一次性喂完并立即 EOF，
     导致异步任务随进程退出而停留在 `pending`。验证异步链路请用 .NET `Process` 保持 stdin 打开（见 T3 冒烟脚本思路），
     或直接用 `internal/rpc` 的单测（内部 `Serve` + 真实 SQLite/假引擎）。
+17. **uv extras 会被精确同步（易踩）**：引擎的基础依赖只有 numpy/scipy，fastapi/pydantic/uvicorn（`api`）、
+    torch（`neural`）、matplotlib（`plot`）都在 extras 里。`uv run` 默认按 extras **精确同步**环境，
+    未显式带 `--extra/--all-extras` 时会把它们**从 .venv 移除**，导致 `import fastapi`/pytest 报缺失。
+    → 跑测试/联调前先 `uv sync --all-extras`，或用 `uv run --all-extras pytest`；CI 已用 `--all-extras`。
+18. **Python 子进程可用**：本沙箱允许 `subprocess.run(..., capture_output=True)`（与 Node 的管道限制不同），
+    因此 `tests/test_rpc.py` 的 import 图测试可以真在子进程里 `import omo.rpc` 并检查 `sys.modules`。
 
 ## 7. 未完成事项与后续计划
 

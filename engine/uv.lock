@@ -616,13 +616,22 @@ name = "omo"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "fastapi" },
-    { name = "matplotlib" },
     { name = "numpy" },
     { name = "scipy" },
+]
+
+[package.optional-dependencies]
+api = [
+    { name = "fastapi" },
+    { name = "pydantic" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+neural = [
     { name = "torch", version = "2.13.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
     { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
-    { name = "uvicorn", extra = ["standard"] },
+]
+plot = [
+    { name = "matplotlib" },
 ]
 
 [package.dev-dependencies]
@@ -634,13 +643,15 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastapi", specifier = ">=0.141.1" },
-    { name = "matplotlib", specifier = ">=3.11.1" },
+    { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.141.1" },
+    { name = "matplotlib", marker = "extra == 'plot'", specifier = ">=3.11.1" },
     { name = "numpy", specifier = ">=2.5.2" },
+    { name = "pydantic", marker = "extra == 'api'", specifier = ">=2.0" },
     { name = "scipy", specifier = ">=1.18.1" },
-    { name = "torch", specifier = ">=2.13.0", index = "https://download.pytorch.org/whl/cpu" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.4" },
+    { name = "torch", marker = "extra == 'neural'", specifier = ">=2.13.0", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.52.4" },
 ]
+provides-extras = ["api", "neural", "plot"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -22,8 +22,9 @@ jobs:
           cache-dependency-glob: "engine/uv.lock"
 
       # 严格使用 uv.lock（--frozen：锁文件与 pyproject 不一致时直接失败）
+      # --all-extras：测试覆盖 api（FastAPI/pydantic）、neural（torch）、plot（matplotlib）
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --all-extras
 
       - name: Lint (ruff)
         run: uv run ruff check src tests

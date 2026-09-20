@@ -38,6 +38,7 @@
 
 ```bash
 # 数据科学层（物理引擎 API，默认 :8000）
+cd engine && uv sync --all-extras        # 首次：装齐依赖（基础仅 numpy/scipy，其余为 extras）
 cd engine && uv run uvicorn omo.api.main:app --port 8000
 
 # 目标反推（引擎层 CLI，体验 M5 v1）

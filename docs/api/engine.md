@@ -151,7 +151,39 @@ Go 中间层通过 HTTP 调用 Python 仿真引擎（FastAPI），执行膜结�
 - 电学：并联方阻 + Fuchs–Sondheimer（`omo.electrical`，文档 `docs/physics/electrical.md`）
 - 屏蔽：传输线模型（`omo.emi`，文档 `docs/physics/emi.md`）
 
+## stdio JSON-RPC 传输（桌面形态，M6-a T4）
+
+桌面形态下 Go 不以 HTTP 调用引擎，而是以**子进程 + stdio JSON-RPC** 通信
+（docs/desktop.md D11；Go 侧由 `OMO_ENGINE_TRANSPORT=stdio` + `OMO_ENGINE_CMD` 启用）：
+
+```bash
+python -m omo.rpc      # 协议走 stdout，日志走 stderr（UTF-8 字节流，JSON-Lines）
+```
+
+- **协议**：JSON-RPC 2.0 + 换行分隔；无 `id` 的行视为通知（执行但不回复）；单行上限 16 MiB。
+- **方法**（参数与 HTTP 请求体**逐字段一致**）：
+
+| 方法 | 等价 HTTP | 结果 |
+|---|---|---|
+| `ping` | `GET /health` | `{"status":"ok","version":"0.1.0"}` |
+| `simulate` | `POST /simulate` | 同 `/simulate` 响应体 |
+| `optimize` | `POST /optimize` | 同 `/optimize` 响应体（反推报告） |
+
+- **错误码**：应用错误 `code = 422`（与 HTTP 422 语义一致）；协议错误用保留码
+  `-32700` 解析失败 / `-32600` 非法请求 / `-32601` 方法不存在 / `-32602` 参数非法。
+- **实现**：`omo/rpc/` 只依赖 `omo.sim` + 物理子包，**不导入**
+  fastapi / uvicorn / pydantic / torch / matplotlib（由 `tests/test_rpc.py` 的 import 图测试守护）；
+  基础依赖仅 numpy / scipy，其余为 extras（`api` / `neural` / `plot`，见 `engine/README.md`）。
+- **一致性**：`tests/test_rpc.py` 用同一请求分别经 RPC 与 HTTP 执行，断言结果 JSON 相同。
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"simulate","params":{"layers":[{"material":"ITO","thickness_nm":40},{"material":"Ag","thickness_nm":10},{"material":"ITO","thickness_nm":40}]}}
+```
+
 ## 实现位置
 
-- 引擎侧：`engine/src/omo/api/`（`main.py` / `service.py` / `schemas.py`）
-- Go 侧调用方：`server/internal/task/`（任务编排，实现中）
+- 引擎侧：`engine/src/omo/`
+  - `sim.py`：仿真/反推编排（**中立层**，两种传输共用；含领域校验）
+  - `api/`：HTTP 传输适配（`main.py` / `service.py` / `schemas.py`）
+  - `rpc/`：stdio JSON-RPC 传输适配（`server.py` / `__main__.py`）
+- Go 侧调用方：`server/internal/task/`（HTTP 客户端；桌面 stdio 客户端见 docs/desktop.md T6）
