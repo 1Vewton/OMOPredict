@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { authGuard } from './guard'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -36,15 +36,7 @@ const router = createRouter({
   ],
 })
 
-// 路由守卫：未认证只能访问 public 页面；已登录访问登录页则跳回设计页。
-router.beforeEach((to) => {
-  const auth = useAuthStore()
-  if (!to.meta.public && !auth.isAuthenticated) {
-    return { name: 'login', query: { redirect: to.fullPath } }
-  }
-  if (to.name === 'login' && auth.isAuthenticated) {
-    return { name: 'design' }
-  }
-})
+// 守卫实现见 ./guard.ts（独立模块，便于单测）
+router.beforeEach(authGuard)
 
 export default router

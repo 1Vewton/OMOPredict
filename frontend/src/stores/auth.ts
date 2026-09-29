@@ -1,8 +1,9 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { authApi } from '@/api/auth'
-import { getToken, setToken } from '@/api/http'
-import type { User } from '@/types'
+import { metaApi } from '@/api/meta'
+import { getToken, setToken } from '@/api/token'
+import type { Meta, User } from '@/types'
 
 const USER_KEY = 'omo_user'
 
@@ -17,12 +18,49 @@ function loadUser(): User | null {
   }
 }
 
-/** 认证状态：token + 用户信息，localStorage 持久化（刷新不掉线）。 */
+/**
+ * 认证状态 + 能力门禁（docs/desktop.md D10）。
+ *
+ * - 启动时拉取 `meta`（HTTP `GET /api/meta` / RPC `meta`），据 `auth_required` 决定是否要求登录；
+ * - **桌面单用户模式**（`auth_required === false`）：`isAuthenticated` 恒为 true、跳过登录页、
+ *   顶栏显示"本地模式"；token 不参与；
+ * - **meta 拉取失败**（网络/传输异常）：按"需要认证"处理，避免误放行受保护页面。
+ */
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(getToken())
   const user = ref<User | null>(loadUser())
 
-  const isAuthenticated = computed(() => token.value !== null)
+  /** 能力声明（null = 尚未取得或取得失败） */
+  const meta = ref<Meta | null>(null)
+
+  /** 是否需要登录：未取得 meta 或取得失败时按 true 兜底（安全默认） */
+  const authRequired = computed(() => meta.value?.auth_required ?? true)
+
+  /** 是否为已确认的单用户本地模式（用于顶栏标记与退出按钮的显隐） */
+  const isLocalMode = computed(() => meta.value !== null && !authRequired.value)
+
+  /** 可否访问受保护页面：需要认证时看 token，否则一律放行 */
+  const isAuthenticated = computed(() => !authRequired.value || token.value !== null)
+
+  let bootstrapPromise: Promise<void> | null = null
+
+  async function loadMeta(): Promise<void> {
+    try {
+      meta.value = await metaApi.get()
+    } catch {
+      // 失败不抛出：门禁按"需要认证"兜底，登录页会给出连接错误提示
+      meta.value = null
+    }
+  }
+
+  /**
+   * 拉取能力声明（幂等：多次调用只真正请求一次）。
+   * main.ts 在挂载前调用，路由守卫调用以兜底（避免直接深链时门禁未就绪）。
+   */
+  function bootstrap(): Promise<void> {
+    bootstrapPromise ??= loadMeta()
+    return bootstrapPromise
+  }
 
   function applyAuth(next: { token: string; user: User }): void {
     token.value = next.token
@@ -47,5 +85,16 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem(USER_KEY)
   }
 
-  return { token, user, isAuthenticated, login, register, logout }
+  return {
+    token,
+    user,
+    meta,
+    authRequired,
+    isLocalMode,
+    isAuthenticated,
+    bootstrap,
+    login,
+    register,
+    logout,
+  }
 })

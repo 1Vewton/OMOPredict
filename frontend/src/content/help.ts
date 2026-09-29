@@ -39,6 +39,7 @@ export const help = {
     'pending = 排队中 · running = 计算中 · succeeded = 完成 · failed = 失败。存在未完成任务时列表每 3 秒自动刷新。',
   'history.kind':
     '任务类型：仿真 = 正向计算给定膜层的光学/电学/屏蔽性能；目标反推 = 由性能目标反推候选膜厚组合。',
+  'history.delete': '删除任务（含结果），不可恢复；需点两次确认。删除后重新打开应用也不会再出现。',
 
   // ---- 结果页 ----
   'result.rs': '多层并联方阻（含超薄金属 Fuchs–Sondheimer 尺寸效应）；无导电层时为 —。',

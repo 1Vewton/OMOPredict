@@ -27,6 +27,33 @@ async function load(): Promise<void> {
   }
 }
 
+// 删除采用两段式内联确认（项目约定：不用原生 confirm，嵌入式 webview 可能禁用）
+const confirmId = ref<string | null>(null)
+const deletingId = ref<string | null>(null)
+
+/** 首次点击进入确认态；再次点击才真正删除。 */
+async function remove(t: SimulationTask): Promise<void> {
+  if (confirmId.value !== t.id) {
+    confirmId.value = t.id
+    return
+  }
+  deletingId.value = t.id
+  try {
+    await tasksApi.remove(t.id)
+    tasks.value = tasks.value.filter((x) => x.id !== t.id)
+    error.value = ''
+  } catch (e) {
+    error.value = e instanceof ApiError ? e.message : '删除失败，请稍后重试'
+  } finally {
+    deletingId.value = null
+    confirmId.value = null
+  }
+}
+
+function cancelRemove(): void {
+  confirmId.value = null
+}
+
 onMounted(() => {
   void load()
   // 有待处理任务时自动刷新，跟踪异步执行进度
@@ -94,7 +121,7 @@ function contentText(t: SimulationTask): string {
             <th>名称</th>
             <th>内容</th>
             <th>创建时间</th>
-            <th style="width: 72px"></th>
+            <th style="width: 132px">操作<HelpTip k="history.delete" /></th>
           </tr>
         </thead>
         <tbody>
@@ -112,9 +139,23 @@ function contentText(t: SimulationTask): string {
             <td class="stack-cell" :title="contentText(t)">{{ contentText(t) }}</td>
             <td class="muted">{{ fmtTime(t.created_at) }}</td>
             <td>
-              <RouterLink class="view-link" :to="{ name: 'task-detail', params: { id: t.id } }">
-                查看
-              </RouterLink>
+              <div class="row-actions">
+                <RouterLink class="view-link" :to="{ name: 'task-detail', params: { id: t.id } }">
+                  查看
+                </RouterLink>
+                <template v-if="confirmId === t.id">
+                  <button
+                    class="link-btn danger"
+                    type="button"
+                    :disabled="deletingId === t.id"
+                    @click="remove(t)"
+                  >
+                    {{ deletingId === t.id ? '删除中…' : '确认删除' }}
+                  </button>
+                  <button class="link-btn" type="button" @click="cancelRemove">取消</button>
+                </template>
+                <button v-else class="link-btn" type="button" @click="remove(t)">删除</button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -168,5 +209,37 @@ function contentText(t: SimulationTask): string {
 
 .view-link:hover {
   text-decoration: underline;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 行内"文字按钮"：与查看链接同视觉重量，避免表格里出现一排实体按钮 */
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.link-btn:hover:not(:disabled) {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+.link-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.link-btn.danger {
+  color: var(--color-danger);
+  font-weight: 500;
 }
 </style>

@@ -11,6 +11,18 @@ export interface AuthResponse {
   user: User
 }
 
+/** 能力声明（HTTP `GET /api/meta` / RPC `meta`；docs/desktop.md D10）。 */
+export interface Meta {
+  /** 服务版本 */
+  version: string
+  /** 生效的认证模式：jwt | none */
+  auth_mode: string
+  /** 是否需要认证：false = 单用户本地模式（桌面版，前端跳过登录页与守卫） */
+  auth_required: boolean
+  /** 引擎传输方式：http | stdio */
+  engine_transport: string
+}
+
 export interface Layer {
   /** 材料名（ITO / Ag / glass，见引擎材料注册表 omo.materials） */
   material: string
