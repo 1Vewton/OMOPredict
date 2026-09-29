@@ -24,19 +24,41 @@
 
 | 层 | 技术 | 职责 |
 |---|---|---|
-| **数据科学层** | Python（numpy / scipy） | 物理建模与仿真计算：光学、电学、电磁屏蔽、参数优化、文献对标 |
-| **中间层** | Go | 用户管理、数据持久化、仿真任务编排、对外 REST API |
-| **前端** | Vue 3 + TypeScript（Vite） | 参数输入、结果图表可视化、任务历史、对标报告展示 |
+| **数据科学层** | Python（基础仅 numpy / scipy；torch / matplotlib / FastAPI 均为可选 extras） | 物理建模与仿真计算：光学、电学、电磁屏蔽、参数优化、文献对标 |
+| **中间层** | Go | 用户管理（或单用户本地模式）、数据持久化、仿真任务编排、REST API / stdio JSON-RPC |
+| **前端** | Vue 3 + TypeScript（Vite） | 参数输入、结果图表可视化、任务历史、目标反推 |
 
-**服务间通信约定**：前端只与 Go 中间层通信；Go 中间层通过 HTTP（FastAPI 微服务）调用 Python 仿真引擎。
+**服务间通信约定**：前端只与 Go 中间层通信。**两种运行形态共用同一份代码与 JSON 载荷**，
+仅传输方式与认证模式不同（详见 `docs/desktop.md`）：
+
+- **Web / 开发形态**：前端 REST/JSON → Go（JWT 多用户）→ HTTP → Python 引擎（FastAPI `omo.api`）。
+- **桌面形态（M6-a 起，部分落地）**：Electron IPC → Go `--stdio`（`OMO_AUTH_MODE=none` 单用户，
+  `user_id="local"`）→ stdio → 引擎 `python -m omo.rpc`；全程 **stdio JSON-RPC 2.0（JSON-Lines）、
+  不监听端口**。契约见 `docs/api/rpc.md`。
+
 Python 侧同时提供可独立运行的 CLI，便于脚本化批量仿真与对标。
 
 ```
+Web 形态（现行默认）
 ┌────────────┐   REST/JSON   ┌──────────────┐   HTTP   ┌──────────────────┐
 │  Vue3+TS   │ ────────────▶ │     Go       │ ───────▶ │  Python (FastAPI)│
 │  前端 UI   │ ◀──────────── │ 用户/存储/任务│ ◀─────── │  物理仿真引擎     │
 └────────────┘               └──────────────┘          └──────────────────┘
+
+桌面形态（设计中，见 docs/desktop.md）
+┌────────────┐     IPC      ┌──────────────┐  stdio   ┌──────────────┐  stdio  ┌──────────────┐
+│  渲染进程  │ ───────────▶ │   Electron   │ ───────▶ │  Go --stdio  │ ──────▶ │   omo.rpc    │
+│ (同前端)   │ ◀─────────── │    主进程    │ ◀─────── │ 单用户任务层 │ ◀────── │  物理仿真引擎│
+└────────────┘              └──────────────┘          └──────────────┘         └──────────────┘
 ```
+
+> ✅ **桌面形态已完成到 T5**：单用户模式、任务删除、Go 侧 RPC 分发器、引擎侧 `omo.sim` + `omo.rpc`、
+> **Go→引擎 stdio 传输**（T4.5）、**前端传输抽象 + `meta` 能力门禁**（T5）。
+> `OMO_ENGINE_TRANSPORT=stdio` 时 Go 作为父进程拉起引擎（`python -m omo.rpc`），
+> 全程**不监听任何端口**（已实测满足 docs/desktop.md §10.6）；引擎启动命令按
+> `OMO_ENGINE_CMD` → 完整包 sidecar → `uv` → `python` 四级解析（`server/internal/task/engine_resolve.go`）。
+> 前端 `activeTransport()` 依 `window.omo` 自动选 IPC/HTTP，据 `meta.auth_required` 决定是否要求登录。
+> 仍未做：**T6–T11**（Electron 壳、轻量包、CI 产物与体积门禁、净机验收）。
 
 ---
 
@@ -59,7 +81,7 @@ Python 侧同时提供可独立运行的 CLI，便于脚本化批量仿真与对
 - 薄导电膜近似：SE ≈ 20·log₁₀(1 + Z₀ / (2Rs))，Z₀ = 377 Ω；多层结构用多层传输线矩阵。
 - 输出：8.2–12.4 GHz（X 波段）及更宽频段（1–18 GHz）的 SE 曲线。
 
-### 3.4 综合指标与优化—— ✅ M5 v1 已完成（engine 层，见 engine/src/omo/optimize/）
+### 3.4 综合指标与优化—— ✅ M5 v1（引擎）+ v2（API/前端接入）已完成（见 engine/src/omo/optimize/）
 - **品质因子**：Haacke FoM = T¹⁰ / Rs（G. Haacke, J. Appl. Phys. 47, 4086 (1976)），用于候选横向对比。
 - **参数优化（目标反推 v1）**：硬约束（T_vis ≥ x / Rs ≤ y / SE ≥ z，可任选）下的
   三层膜厚**网格扫描寻优**（默认 ITO/Ag/ITO：外层 20–80 步长 4、金属 5–20 步长 1 ≈ 4k 组合，
@@ -67,7 +89,9 @@ Python 侧同时提供可独立运行的 CLI，便于脚本化批量仿真与对
 - **工艺指导**：最佳候选的**逐层灵敏度**（±1 nm 有限差分：ΔFoM/FoM、ΔT_vis、Δlog₁₀Rs）
   与**工艺窗口**（保持目标可行的单层厚度容差）。CLI：`omo-cli optimize`。
 - 反推求值与正向仿真同源（同一物理引擎），自洽性由测试回灌验证；M2.5 NN 代理可作加速后端（尚未接入）。
-- **M5 剩余**：优化 API/前端接入、报告导出、遗传/贝叶斯等高级寻优、NN 代理加速。
+- **已接入（M5 v2）**：引擎 `POST /optimize` → Go 任务 `kind=optimize`（报告 JSON 原样持久化 + 注入 `task_id`）
+  → 前端「目标反推」页（目标表单 + 候选表 + 灵敏度展示），真实端到端冒烟已通过。
+- **M5 剩余**：报告导出、遗传/贝叶斯等高级寻优、NN 代理加速。
 
 ### 3.5 文献对标（Benchmark）—— ✅ M2 完成（见 engine/src/omo/benchmark/ 与 docs/benchmarks/）
 - 从高水平论文（如 *ACS Appl. Mater. Interfaces*、*Appl. Surf. Sci.*、*Adv. Opt. Mater.*、*Thin Solid Films* 等）提取
@@ -97,55 +121,74 @@ OMOPredict/
 ├── LICENSE
 ├── .gitignore
 ├── docs/
-│   ├── HANDOVER.md             # 交接报告（续接工作必读：状态/环境坑/M4 计划）
+│   ├── HANDOVER.md             # 交接报告（续接工作必读：状态/环境坑/续接计划）
+│   ├── desktop.md              # 桌面版设计（Electron + 单用户 + stdio IPC；T1–T11 拆解）
 │   ├── physics/               # 物理模型文档（TMM、Drude、屏蔽理论）
 │   ├── benchmarks/            # 文献对标数据集与来源（含 DOI）
-│   └── api/                   # API 契约：对外 REST（rest.md）+ 引擎契约（engine.md）
-├── engine/                    # ── 数据科学层 ──（uv 项目，脚手架已完成）
-│   ├── pyproject.toml         # 项目元数据 + pytest/ruff 配置（依赖用 uv add 管理）
+│   └── api/                   # API 契约：对外 REST（rest.md）+ 引擎契约（engine.md）+ 桌面 RPC（rpc.md）
+├── engine/                    # ── 数据科学层 ──（uv 项目）
+│   ├── pyproject.toml         # 元数据 + pytest/ruff 配置；可选 extras：api / neural / plot
 │   ├── README.md
 │   ├── .python-version        # 锁定 Python 3.12
 │   ├── src/omo/               # 包模式划分（仿 Go：一个模块、多个职责包）
 │   │   ├── __init__.py
 │   │   ├── constants.py       # 通用物理常数集中管理（含 CODATA 来源）
+│   │   ├── materials.py       # 共享材料解析 MaterialResolver（benchmark/校准/API/RPC 同源）
+│   │   ├── sim.py             # 中立编排层（Web/桌面共用；只依赖物理子包 + numpy）
 │   │   ├── optics/            # TMM、Drude–Lorentz（M1）
 │   │   ├── electrical/        # 方阻、尺寸效应（M1）
 │   │   ├── emi/               # 屏蔽效能（M1）
-│   │   ├── optimize/          # 目标反推 v1（M5 完成：约束网格扫描 + FoM 排序 + 灵敏度/工艺窗口）
+│   │   ├── optimize/          # 目标反推（M5 v1：约束网格扫描 + FoM 排序 + 灵敏度/工艺窗口）
 │   │   ├── neural/            # NN 代理模型（M2.5 完成：v1 代理，T/Rs/SE 精度 <0.1%）
 │   │   ├── benchmark/         # 文献对标与校准（M2 完成：框架 + 3 篇数据集 + 校准）
-│   │   ├── api/               # FastAPI 服务（M3 完成：/simulate + /health）
-│   │   └── cli/               # 命令行入口（omo-cli，M1 起可用）
-│   └── tests/                 # 单元测试 + 文献基准测试
-├── server/                    # ── Go 中间层 ──（M3 完成：用户/存储/任务编排，端到端打通）
-│   ├── cmd/omopredict/        # 主程序入口（HTTP 服务，优雅退出）
+│   │   ├── api/               # FastAPI 传输层（M3：/health、/simulate；M5 v2：/optimize）
+│   │   ├── rpc/               # stdio JSON-RPC 传输层（M6-a T4：ping/simulate/optimize）
+│   │   └── cli/               # 命令行入口（omo-cli：--version/--info/optimize）
+│   └── tests/                 # 单元测试 + 文献基准测试 + RPC/import 图测试
+├── server/                    # ── Go 中间层 ──（M3 完成；M6-a 增单用户模式与 RPC 分发器）
+│   ├── cmd/omopredict/        # 主程序入口（HTTP 服务；--stdio 走 stdio JSON-RPC）
 │   ├── internal/
 │   │   ├── user/              # 用户注册/登录 + JWT（GORM：sqlite/mysql/postgres + bcrypt）
-│   │   ├── model/             # 数据模型（膜结构、任务、结果）—— snake_case JSON
-│   │   ├── task/              # 任务编排（M3 完成：异步执行 + 调 Python 引擎）
-│   │   └── api/               # REST 路由与中间件（/health、/version）
+│   │   ├── model/             # 数据模型（膜结构、任务 kind=simulate|optimize、结果）—— snake_case JSON
+│   │   ├── task/              # 任务编排（异步执行 + 调 Python 引擎；HTTP/stdio 单一来源）
+│   │   ├── store/             # GORM 打开/迁移/.env 配置（日志默认走 stderr，保护 stdio 协议）
+│   │   ├── mode/              # 运行模式（OMO_AUTH_MODE=jwt|none、OMO_ENGINE_TRANSPORT=http|stdio）
+│   │   ├── rpc/               # stdio JSON-RPC 分发器（M6-a T3；contract_test 与 HTTP 逐字段比对）
+│   │   └── api/               # REST 路由与中间件（/health、/version、/api/meta、/api/tasks）
 │   └── go.mod
-└── frontend/                  # ── Vue 3 + TS 前端 ──（M4 完成）
+└── frontend/                  # ── Vue 3 + TS 前端 ──（M4 完成；M5 v2 增「目标反推」页）
     ├── package.json           # pnpm 工程（pnpm-lock.yaml / pnpm-workspace.yaml）
     ├── vite.config.ts         # /api 代理到 Go :8080（开发期规避 CORS，OMO_SERVER_URL 可覆盖）
+    ├── vitest.config.ts       # 单测配置（jsdom；复用 vite 的 @ 别名）
     ├── tsconfig{,.app,.node}.json / eslint.config.js / .prettierrc.json
     ├── index.html / public/
     └── src/
-        ├── views/             # 页面（Login / Design / TaskDetail / History）
-        ├── components/        # 图表（SpectrumChart / SeChart）、StatusBadge
+        ├── views/             # 页面（Login / Design / Optimize / TaskDetail / History）
+        ├── components/        # 图表（SpectrumChart / SeChart）、StatusBadge、HelpTip
         ├── composables/       # useEChart（ECharts 生命周期封装）
-        ├── api/               # HTTP 客户端（JWT/错误统一处理）+ auth/tasks 接口
-        ├── stores/            # Pinia：auth（token/user 持久化）
+        ├── api/               # 传输层：transport.ts（http | ipc 二选一）+ client.ts（统一入口/401）+
+        │                      # token.ts（凭证）+ meta.ts（能力端点）+ auth/tasks 接口
+        ├── stores/            # Pinia：auth（token/user + authRequired/isLocalMode 门禁）
         ├── router/            # 路由 + 认证守卫
+        ├── content/           # 集中文案（help.ts 悬浮提示、materials.ts 材料预设）
         ├── types/             # 与 REST 契约对齐的 TS 类型（snake_case）
+        ├── utils/             # 数值格式化等工具
         └── styles/            # 全局样式
 ```
 
-> 当前仓库处于 **M4 阶段（已完成）**：Python omo.api（/simulate）、Go 用户系统
-> （JWT + GORM 多库 + .env 配置）、任务编排（异步执行 → 调 Python 引擎 → 结果持久化）、
-> Vue 3 前端（登录/参数设计/结果图表/任务历史）全部落地，端到端冒烟通过
-> （浏览器代理 → Go → uvicorn → T/Rs/SE 回传渲染）；API 契约见 docs/api/。
-> 下一步 M5（优化与工艺指导）。
+> 当前仓库处于 **M6-a 阶段（T1–T5 已完成）**：M4 前端与 M5（引擎反推 v1 + API/前端接入 v2）全部落地，
+> 桌面形态基础亦已就位——单用户模式（`OMO_AUTH_MODE=none` + `GET /api/meta`）、
+> 任务删除（`DELETE /api/tasks/{id}`）、Go 侧 stdio RPC 分发器（`omopredict --stdio`）、
+> 引擎侧中立编排层 `omo.sim` + `omo.rpc` 入口 + 可选依赖化（基础仅 numpy/scipy）、
+> **Go→引擎 stdio 传输**（`OMO_ENGINE_TRANSPORT=stdio`，引擎发现 1–4 级；实测无监听端口）、
+> **前端传输抽象与能力门禁**（`window.omo` → IPC，否则 HTTP；`meta.auth_required=false` 时跳过登录）。
+> 测试现状：Python **132 passed** / ruff 0（本机沙箱的 4 个 tmp_path 权限用例已随文件权限修复一并转绿）；Go 全量测试通过（含 12 个 stdio 引擎用例）；
+> 前端 `pnpm lint` 0 告警 + `pnpm test`（vitest，5 文件 60 用例）+ `pnpm build` 通过
+> （契约层已按 jwt/none 两模式实测；仍无浏览器端到端测试）。API 契约见 `docs/api/`（rest / engine / rpc）。
+>
+> **下一步 M6-b 剩余（T6–T7）**：Electron Host 层 → 壳；`desktop/` 目录尚未创建。
+> ✅ 前置已就位：**T4.5**（Go→引擎 stdio）与 **T5**（前端传输抽象 + `meta` 能力门禁）均已完成；
+> 桌面壳的 preload 须实现 T5 固化的 `window.omo.rpc(method, params)` 契约（失败 reject 带 HTTP 语义 `code`）。
 
 ---
 
@@ -159,10 +202,11 @@ OMOPredict/
 | **M2.5** | NN 代理模型（Surrogate） | 仿真数据生成管线 + 正向代理 NN（T / Rs / SE），推理加速与精度验收通过 |
 | **M3** | Go 中间层 | 用户系统、膜结构/任务数据模型、任务编排、REST API |
 | **M4** | Vue 前端 | 参数设计页、仿真结果图表、任务历史、对标对比展示（**已完成**：登录/注册、膜层设计、ECharts 结果图、任务历史） |
-| **M5** | 优化与工艺指导 | 参数优化、灵敏度分析、报告导出（**v1 引擎层目标反推完成**：约束网格扫描 + FoM 排序 + 逐层灵敏度/工艺窗口，CLI `omo-cli optimize`；剩余：API/前端接入、报告导出、高级寻优） |
-| **M6** | 集成与打磨 | 端到端联调、文档完善、示例数据与演示 |
+| **M5** | 优化与工艺指导 | 参数优化、灵敏度分析、报告导出（**v1 引擎反推 + v2 API/前端接入均已完成**：约束网格扫描 + FoM 排序 + 逐层灵敏度/工艺窗口；引擎 `POST /optimize` → Go `kind=optimize` → 前端「目标反推」页；剩余：报告导出、高级寻优、NN 代理加速） |
+| **M6** | 集成与打磨 | 端到端联调、文档完善、示例数据与演示；**扩展：桌面版**（M6-a T1–T4 + **T4.5** + **T5** ✅ 单用户模式 / 任务删除 / Go RPC 分发器 / 引擎编排下沉 / **Go→引擎 stdio 传输** / **前端传输抽象+能力门禁**；M6-b T6–T7 ⏳ Electron Host 层 / 壳；M6-c T8–T9 ⏳ 轻量包 / CI 产物与体积门禁；M6-d T10–T11 ⏳ 文档 / 净机验收） |
 
-**当前进度**：M4 ✅ 完成（Vue 3 前端）+ M5 v1 ✅ 完成（omo.optimize 目标反推：约束网格扫描、FoM 排序、灵敏度与工艺窗口，19 测试全过、默认 4k 组合 ~3 s）；下一步 M5 剩余（优化 API/前端接入、报告导出、NN 代理加速）。
+**当前进度**：M4 ✅ + M5 ✅（v1 引擎反推 19 测试全过、默认 4k 组合 ~3 s；v2 API/前端接入端到端冒烟通过）+ **M6-a ✅（T1–T4 桌面基础 + T4.5 Go→引擎 stdio 传输 + T5 前端传输抽象与能力门禁）**。
+下一步 **M6-b 剩余（T6–T7：Electron Host 层 → 壳）**；"无端口"已由 T4.5 解锁（见 §2）。
 
 **阶段完成标准**：每个里程碑必须有可运行的代码 + 测试通过 + 文档更新，不允许"只写代码不验证"。
 
@@ -197,23 +241,36 @@ OMOPredict/
 
 ---
 
-## 7. 常用命令（规划中，随脚手架落地）
+## 7. 常用命令
 
 ```bash
-# Python 数据科学层（脚手架已就绪，目录 engine/）
-cd engine && uv run pytest                # 运行测试（含文献基准）
+# Python 数据科学层（目录 engine/）
+#   注意：uv run 按 extras 精确同步，未带 --all-extras 会把 fastapi/torch 从 .venv 移除
+cd engine && uv sync --all-extras         # 首次/改依赖后：装齐 api + neural + plot
+cd engine && uv run --all-extras pytest   # 运行测试（含文献基准）
 cd engine && uv run ruff check src tests  # 代码检查
 cd engine && uv run omo-cli --info        # CLI 入口
+cd engine && uv run omo-cli optimize --min-t 0.85 --max-rs 12 --min-se 25   # 目标反推（M5 v1）
+cd engine && uv run python -m omo.rpc     # stdio JSON-RPC 引擎入口（桌面形态）
 
-# Go 中间层（M3 起可用）
+# Go 中间层
 cd server && go build ./...
 cd server && go vet ./...
 cd server && go test ./...
+cd server && go run ./cmd/omopredict                              # HTTP 服务（Web 形态）
+cd server && OMO_AUTH_MODE=none go run ./cmd/omopredict --stdio   # stdio JSON-RPC（桌面形态；引擎仍走 HTTP）
+# 桌面形态（无端口）：Go 侧 RPC + Go→引擎 stdio；OMO_ENGINE_CMD 支持引号包裹含空格的路径
+cd server && OMO_AUTH_MODE=none OMO_ENGINE_TRANSPORT=stdio OMO_ENGINE_CMD='python -m omo.rpc' go run ./cmd/omopredict --stdio
 
-# 前端（M4 后可用）
+# 前端
 cd frontend && pnpm install
-cd frontend && pnpm dev
+cd frontend && pnpm dev                   # 开发服务器（/api 代理到 Go :8080）
+cd frontend && pnpm lint                  # ESLint（0 告警为通过标准）
+cd frontend && pnpm test                  # vitest 单测（jsdom；传输/门禁/守卫/历史页删除）
+cd frontend && pnpm build                 # vue-tsc -b + vite build
 ```
+
+> 端到端联调步骤、端口占用与其它环境坑见 `docs/HANDOVER.md` §3 与 §6。
 
 ---
 
@@ -231,4 +288,4 @@ cd frontend && pnpm dev
 
 ---
 
-*最后更新：M5 v1（引擎层目标反推）完成。每次架构或物理模型变更时，记得同步更新本文件。*
+*最后更新：T5（前端传输抽象 + 能力门禁）完成。每次架构、物理模型或里程碑变更时，记得同步更新本文件。*

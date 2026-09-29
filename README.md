@@ -31,8 +31,13 @@
 - ✅ M4 Vue 前端：登录/注册、膜层参数设计、ECharts 结果图表、任务历史
 - ✅ M5 v1 目标反推（引擎层）：约束 → 网格扫描 → 候选 + FoM 排序 + 灵敏度/工艺窗口（`omo-cli optimize`）
 - ✅ M5 v2 反推打通：引擎 `POST /optimize` + Go `kind=optimize` 任务 + 前端「目标反推」页
-- ✅ M6-a T1–T3（桌面版基础，见 `docs/desktop.md`）：单用户模式 + `/api/meta`、任务删除、stdio JSON-RPC 传输
-- ⏳ M5 剩余（报告导出、NN 代理加速）/ M6 剩余（Electron 桌面包 T4–T11）
+- ✅ M6-a T1–T4（桌面版基础，见 `docs/desktop.md`）：单用户模式 + `/api/meta`、任务删除、
+  Go 侧 stdio JSON-RPC 传输、引擎侧中立编排层 `omo.sim` + `omo.rpc` 入口
+- ✅ T4.5 **Go→引擎 stdio 传输**：Go 作为父进程拉起引擎（引擎发现 1–4 级），
+  桌面形态**全程不监听端口**（已实测），HTTP/stdio 载荷逐字段一致
+- ✅ T5 **前端传输抽象 + 能力门禁**：`window.omo` 存在则走 Electron IPC、否则 HTTP（载荷一致）；
+  启动拉 `meta` 后按 `auth_required` 决定是否要求登录（单用户模式顶栏显示「本地模式」）；历史页支持删除
+- ⏳ M5 剩余（报告导出、高级寻优、NN 代理加速）/ M6 剩余（Electron 桌面包 T6–T11）
 
 ## 快速开始
 
@@ -46,6 +51,10 @@ cd engine && uv run omo-cli optimize --min-t 0.85 --max-rs 12 --min-se 25
 
 # 中间层（默认 :8080，读取 server/.env；OMO_ENGINE_URL 指向引擎）
 cd server && go run ./cmd/omopredict
+
+# 桌面形态（无端口，实验性）：Go 侧 stdio JSON-RPC + Go 拉起引擎走 stdio，不监听任何端口
+#   OMO_ENGINE_CMD 也可用引号包裹含空格的路径；不设则按 resources/engine → uv → python 自动发现
+cd server && OMO_AUTH_MODE=none OMO_ENGINE_TRANSPORT=stdio OMO_ENGINE_CMD='python -m omo.rpc' go run ./cmd/omopredict --stdio
 
 # 前端（默认 :5173，/api 代理到 Go :8080）
 cd frontend && pnpm install && pnpm dev
@@ -107,11 +116,13 @@ cd frontend && pnpm lint && pnpm build  # 前端检查与构建
 - **单机单实例假设**：默认 SQLite（并发写受限），无多实例/分布式部署能力；
   MySQL/PostgreSQL 已支持但 CI 只覆盖 SQLite。
 - **无速率限制与配额**，任务结果一次性写入（无版本化/重算）。
-- **测试覆盖不均**：Python/Go 有较完整单测与对标测试；**前端仅有类型检查 + lint + 手工冒烟，
-  没有组件测试与浏览器端到端测试**。
+- **测试覆盖不均**：Python/Go 有较完整单测与对标测试；前端已有 vitest 单测
+  （传输抽象/端点映射/能力门禁/路由守卫/历史页删除，5 文件 60 用例），但**仍无浏览器端到端测试，
+  真实 Electron 壳也未冒烟**。
 - **桌面版尚未交付**（设计见 `docs/desktop.md`）：当前仍是三进程 Web 形态；规划中的桌面包将
   **排除 torch（无 NN 加速）**、无代码签名与自动更新、Windows 优先、轻量包需用户自备 Python。
-- **未实现**：报告导出、逆向设计（目标 → 结构优化）、更多材料体系、`omo-cli simulate` 子命令等（见里程碑 ⏳）。
+- **未实现**：报告导出、**通用**逆向设计（任意层数/层序、自定义目标函数——现有目标反推已覆盖
+  固定三层的硬约束膜厚反推，见 §3）、更多材料体系、`omo-cli simulate` 子命令等（见里程碑 ⏳）。
 
 ### 5. 不适合的场景
 

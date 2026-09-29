@@ -1,7 +1,32 @@
-# 引擎契约（Go → Python `omo.api /simulate`）
+# 引擎契约（Go → Python `omo.api` / `omo.rpc`）
 
-Go 中间层通过 HTTP 调用 Python 仿真引擎（FastAPI），执行膜结构仿真。
-引擎实现见 `engine/src/omo/api/`（服务：`uv run uvicorn omo.api.main:app --port 8000`）。
+Go 中间层调用 Python 仿真引擎，执行膜结构仿真与目标反推。**两种传输，同一载荷**：
+
+| 传输 | 端点/方法 | 何时用 | 实现 |
+|---|---|---|---|
+| **HTTP**（默认） | `POST /simulate`、`POST /optimize`、`GET /health` | Web/开发形态（引擎以 uvicorn 启动） | `engine/src/omo/api/`；Go 侧 `task.EngineClient` |
+| **stdio**（桌面） | JSON-RPC `simulate` / `optimize` / `ping` | 桌面形态（**不监听端口**，Go 作为父进程拉起引擎） | `engine/src/omo/rpc/`；Go 侧 `task.StdioEngine` |
+
+传输由 `OMO_ENGINE_TRANSPORT`（`http`｜`stdio`）选择，Go 侧启动时按 `OMO_ENGINE_CMD` → 完整包 sidecar →
+`uv` → `python` 解析引擎启动命令（docs/desktop.md D9）。**两种传输的 params/result 逐字段相同**
+（Go 侧共用同一组请求构造，`engine_stdio_test.go` 用"载荷逐字节一致"用例守护），
+因此下文各接口的 JSON 示例对两种传输都适用。
+
+HTTP 传输：引擎以 `uv run uvicorn omo.api.main:app --port 8000` 启动。
+stdio 传输：引擎以 `python -m omo.rpc` 启动（协议细节见 [`rpc.md`](rpc.md)，同为 JSON-RPC 2.0 + JSON-Lines）。
+
+## stdio 传输的调用形式（桌面）
+
+每行一个 JSON-RPC 2.0 请求，响应对应同 `id`：
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"simulate","params":{ /* 与 POST /simulate 请求体逐字段相同 */ }}
+{"jsonrpc":"2.0","id":1,"result":{ /* 与 POST /simulate 响应体逐字段相同 */ }}
+```
+
+方法映射：`simulate` ↔ `POST /simulate`、`optimize` ↔ `POST /optimize`、`ping` ↔ `GET /health`。
+应用错误用 `error.code = 422`（领域校验失败，与 HTTP 的 422 语义一致），
+协议错误用 JSON-RPC 保留码（`-32700`/`-32600`/`-32601`/`-32602`）。
 
 ## `POST {engine_url}/simulate`
 
@@ -50,7 +75,7 @@ Go 中间层通过 HTTP 调用 Python 仿真引擎（FastAPI），执行膜结�
 |---|---|
 | `422` | 未知材料、空膜层、负厚度、网格非正（detail 为错误消息） |
 
-## `POST {engine_url}/optimize` —— 目标反推（M5 v1，供 Go 任务 kind=optimize 调用）
+## `POST {engine_url}/optimize` —— 目标反推（M5 v2，供 Go 任务 kind=optimize 调用）
 
 给定**目标约束**，在 OMO 三层厚度空间上网格扫描反推膜厚组合（物理引擎求值，
 同步返回，默认规模 ~4k 组合约 3 s）。实现见 `omo.optimize`（target/evaluate/search/sensitivity）。

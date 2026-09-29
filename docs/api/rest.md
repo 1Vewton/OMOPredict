@@ -87,7 +87,7 @@
 
 ## 仿真/反推任务（需认证）
 
-任务类型由 `kind` 区分：`simulate`（正向仿真，默认）| `optimize`（目标反推，M5 v1）。
+任务类型由 `kind` 区分：`simulate`（正向仿真，默认）| `optimize`（目标反推，M5 v2）。
 状态机一致：`pending → running → succeeded | failed`。
 
 ### `POST /api/tasks` — 创建任务（异步执行，立即返回 202）

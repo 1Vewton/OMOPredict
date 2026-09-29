@@ -46,7 +46,7 @@ uv sync --all-extras         # 装齐依赖（测试与联调必需）
 uv run pytest                # 运行测试（含文献基准）
 uv run ruff check src tests  # 代码检查
 uv run omo-cli --info        # CLI 入口
-uv run python -m omo.rpc     # stdio JSON-RPC 入口（桌面形态；协议见 docs/api/engine.md）
+uv run python -m omo.rpc     # stdio JSON-RPC 入口（桌面形态；协议见 docs/api/rpc.md）
 ```
 
 ## 环境说明

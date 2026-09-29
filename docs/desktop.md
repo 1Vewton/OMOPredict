@@ -212,8 +212,17 @@
 | 1 | 环境变量 `OMO_ENGINE_CMD` | 直接执行（机房统一配置/高级用户） |
 | 2 | 同级 `resources/engine/omo-rpc.exe`（完整包布局） | 直接运行 sidecar |
 | 3 | PATH 有 `uv` | `uv run --frozen --project <内置 engine> python -m omo.rpc` |
-| 4 | PATH 有 `python`/`py` 且 `import omo` 成功 | `python -m omo.rpc` |
+| 4 | PATH 有 `python`/`py` | `python -m omo.rpc` |
 | 5 | 均失败 | **友好错误对话框**：缺什么、装什么（Python ≥3.12 或 uv）、"打开日志目录" |
+
+> **实现状态（T4.5 ✅，Go 侧）**：解析已落在 `server/internal/task/engine_resolve.go` 的
+> `ResolveEngineCommand()`，1–4 级均已实现并有单测覆盖（注入式环境，不触碰真实机器）；第 5 级在
+> Go 侧是**启动即失败并打印可操作指引**（`OMO_ENGINE_CMD` / 装 uv / 用完整包），
+> **友好错误对话框属 Host 层（T6/T7）**。
+> 引擎工程目录取 `OMO_ENGINE_PROJECT`，否则推断 `resources/engine`（须含 `pyproject.toml`），
+> 并作为子进程工作目录（使 `python -m omo.rpc` 在 src 布局下可直接导入 `omo`）。
+> 第 4 级未做 `import omo` 预检，改为**启动后立即 ping** 验证——失败会显示引擎的真实报错
+> （如 `ModuleNotFoundError: No module named 'omo'`）而不是静默超时。
 
 `setup-engine.ps1`：有 uv → `uv sync --frozen`；否则 `python -m pip install -e engine`（附镜像提示）。
 
@@ -239,7 +248,9 @@
 |---|---|---|
 | `OMO_AUTH_MODE` | Go | **新增**：`none`（桌面，固定本地用户）/ `jwt`（Web，默认） |
 | `OMO_ENGINE_TRANSPORT` | Go | **新增**：`http`（Web，默认，配合 `OMO_ENGINE_URL`）/ `stdio`（桌面，配合 `OMO_ENGINE_CMD`） |
-| `OMO_ENGINE_CMD` | Go/Host | **新增**：引擎启动命令（stdio 模式；缺省按 D9 顺序自动发现） |
+| `OMO_ENGINE_CMD` | Go/Host | **新增**：引擎启动命令（stdio 模式；支持引号包裹含空格的路径；缺省按 D9 顺序自动发现） |
+| `OMO_ENGINE_PROJECT` | Go/Host | **新增**：引擎工程目录（含 `pyproject.toml`），用作 D9 第 3/4 级与子进程工作目录；缺省推断 `resources/engine` |
+| `OMO_ENGINE_TIMEOUT` | Go | **新增**：单次引擎调用超时（Go duration，默认 `60s`）；大规模网格反推需调大（如 `10m`） |
 | `OMO_LOG_DIR` | Go | **新增**：日志目录（不设则输出 stderr，保持现有行为） |
 | `OMO_DB_DRIVER` / `OMO_DB_DSN` / `OMO_SERVER_ADDR` / `OMO_ENGINE_URL` / `OMO_JWT_SECRET` | Go | 复用现有（桌面仅用前两个） |
 
@@ -259,7 +270,8 @@ OMOPredict/
 │   │   └── resources/dist/      # 构建期放入 frontend/dist
 │   ├── lite/                    # setup-engine.ps1、README.txt 模板
 │   └── package.json             # electron-builder（nsis + zip）
-├── frontend/src/api/            # 新增 transport.ts（http | ipc）、client.ts；views 不改
+├── frontend/src/api/            # transport.ts（http | ipc）+ client.ts（401 横切）+ token.ts + meta.ts；
+│                                # auth.ts/tasks.ts 改为经 client 调用（T5 完成，见 §13）
 ├── server/internal/rpc/         # 新增：stdio JSON-RPC 分发器（复用 task/user 服务）
 ├── engine/src/omo/rpc/          # 新增：stdio 入口；omo/sim.py 承载编排（从 api.service 下沉）
 └── scripts/
@@ -286,6 +298,11 @@ OMOPredict/
 - **体积门禁**：完整包 ≤300MB、引擎目录 ≤90MB、轻量包 ≤50MB（超出即失败，防 torch/fastapi 回归）。
 - **契约一致性测试**（必做）：同一组用例分别经 HTTP 与 RPC 执行，断言响应 JSON 深度相等；
   前端 `client.ts` 用同一套假传输做单测。
+  - ✅ **后端部分已落地**：`internal/rpc/contract_test.go`（HTTP↔RPC 载荷逐字段比对）；
+    T4.5 另加"stdio↔HTTP 反推载荷逐字节一致"用例。
+  - ✅ **前端部分已落地（T9 局部）**：`src/api/transport.test.ts` 断言同一套用例经 HTTP（假 fetch 捕获请求）
+    与 IPC（假桥捕获调用）时，**参数编码与返回结果一致**。
+  - ⏳ 其余 T9 项（`rpc-cli.ps1` / `build-desktop.ps1` / 体积门禁 / CI 六 job / Release）待做。
 
 ---
 
@@ -347,16 +364,20 @@ OMOPredict/
 | T2 | 任务删除 | `DELETE /api/tasks/{id}` + store.Delete + 归属校验；Go 测试 | T1 |
 | T3 | Go RPC 分发器 | `internal/rpc`：JSON-Lines 读写、方法路由（复用 service 层）、错误码=HTTP 语义、`--stdio` 启动开关；测试 | T1、T2 |
 | T4 | 引擎编排下沉 + RPC 入口 | `omo.sim`（编排）、`omo/rpc`（stdio 循环）、可选 extras、import 图测试；pytest | — |
+| **T4.5** | **Go 侧 stdio 引擎传输 + 引擎发现** | `internal/task`：`Engine` 接口（HTTP/stdio 同契约）、`StdioEngine`（惰性子进程、id↔响应、超时、进程退出即在途失败、优雅关闭）、`ResolveEngineCommand`（D9 1–4 级）；`OMO_ENGINE_TRANSPORT/OMO_ENGINE_CMD/OMO_ENGINE_PROJECT/OMO_ENGINE_TIMEOUT`；Go 测试 | T4 |
 | T5 | 前端传输抽象 + 门禁 | `transport.ts`（http/ipc）、`client.ts`、`meta` 启动拉取、无认证模式的守卫/UI 调整、历史页删除按钮 | T1、T2 |
-| T6 | Host 层 | Go 子进程 stdio 客户端（id↔Promise/超时/重启）、引擎发现（D9）、Job Object 回收、单实例、日志捕获 | T3、T4 |
+| T6 | Host 层 | Go 子进程 stdio 客户端（id↔Promise/超时/重启）、引擎发现（D9）、Job Object 回收、单实例、日志捕获 | T3、T4、T4.5 |
 | T7 | Electron 壳 | 主进程窗口 + `app://` 协议 + 菜单（关于/数据目录/日志/诊断）+ preload + electron-builder 配置 | T6 |
 | T8 | 轻量包 | `build-lite.ps1`、`setup-engine.ps1`、README 模板、无 Python 错误路径验证 | T3、T6 |
 | T9 | 契约一致性 + 脚本 + CI | HTTP/RPC 一致性测试、`rpc-cli.ps1`、`build-desktop.ps1`、CI 六 job、体积门禁、Release | T1–T8 |
 | T10 | 文档 | `desktop/README.md`、根 README"桌面版"章节、HANDOVER（产物/坑/模式说明）、`docs/api/rpc.md` | T9 |
 | T11 | 净机验收 | 按 §10 两套清单逐项验证（含中文用户名机器、无端口检查） | T9 |
 
-**里程碑**：M6-a（T1–T4：单用户 + RPC 三链路可手工联调）→ M6-b（T5–T7：桌面窗口可用、无端口）
+**里程碑**：M6-a（T1–T4.5：单用户 + RPC 三链路可手工联调 + **Go→引擎 stdio 无端口**）→ M6-b（T5–T7：桌面窗口可用、无端口）
 → M6-c（T8–T9：轻量包 + CI 产物 + 契约测试）→ M6-d（T10–T11：文档与净机验收，可对外分发）。
+
+> **关于 T4.5（原设计缺口）**：第 3 稿把"Go 侧 stdio 引擎客户端"隐含在 T6 里，导致 T4 只完成引擎那一半时
+> 仍以 HTTP 调引擎——**"无端口"无法达成**。T4.5 已补齐该缺口（见 §13），T6 因此只需做 Host 层。
 
 ---
 
@@ -379,14 +400,34 @@ OMOPredict/
 | T2 任务删除 | ✅ 完成 | `DELETE /api/tasks/{id}`（归属校验统一 404）+ `Store.Delete`；新增 6 个 api 用例（成功/反推任务/不存在/跨用户/未认证/本地模式）+ 1 个 store 用例（二次删除 ErrNotFound） |
 | T3 Go RPC 分发器 | ✅ 完成 | `internal/rpc`：JSON-Lines + JSON-RPC 2.0、方法路由（ping/meta/tasks.*，复用 service 层）、错误码=HTTP 语义（协议错误用保留码）、`--stdio` 开关；抽出 `internal/mode`、`task.CreateRequest`、`GetOwned/DeleteOwned` 作为 HTTP/RPC 单一来源；新增 rpc 12 用例 + 契约一致性 5 用例；**真实 stdio 会话冒烟**（真实引擎 Rs=3.9708、删除后 404、四行全为合法 JSON） |
 | T4 引擎编排下沉 + RPC 入口 | ✅ 完成 | 新增中立层 `omo.sim`（spec/result dataclass + 领域校验，Web/桌面共用）；`omo/api/service.py` 变薄适配；新增 `omo/rpc`（stdio JSON-RPC：ping/simulate/optimize，应用错误 422、协议保留码）；**可选依赖化**（基础仅 numpy/scipy，`api`/`neural`/`plot` 为 extras）+ import 图测试（子进程断言不导入 torch/matplotlib/fastapi/uvicorn/pydantic）；新增 35 测试（含 RPC↔HTTP 载荷一致性） |
-| T5 前端传输抽象 + 门禁 | ⏳ | 待做 |
-| T6 Host 层 | ⏳ | 待做 |
+| T4.5 Go stdio 引擎传输 | ✅ 完成 | `internal/task/engine_stdio.go`：`StdioEngine`（惰性拉起引擎子进程、JSON-Lines 收发、按 id 关联乱序响应、单次调用超时、引擎退出即在途请求立即失败、Close 优雅收尾超时 3s 强杀；stdout 仅协议、引擎 stderr 并入本进程）+ `engine_resolve.go`：`ResolveEngineCommand`（D9 1–4 级，含引号路径切分）+ `Engine` 接口使 HTTP/stdio **共用同一载荷构造**（`simulateParams`）；`main.go` 按 `OMO_ENGINE_TRANSPORT` 选传输并在 stdio 解析失败时**启动即退出**（不静默回退 HTTP） |
+| T5 前端传输抽象 + 门禁 | ✅ 完成 | `api/transport.ts`（`Transport` 接口 + 方法→端点映射 + `ipcTransport`/`httpTransport` + `activeTransport()`：检测 `window.omo` 选 IPC，否则 HTTP，可用 `setTransport()` 覆盖）+ `api/client.ts`（统一入口，401 → 清凭证 + 广播 `omo:unauthorized`）+ `api/token.ts`（凭证，单用户模式不参与）+ `api/meta.ts`；**能力门禁**：`main.ts` 挂载前 `bootstrap()` 拉 `meta`，auth store 增 `authRequired`/`isLocalMode`/`isAuthenticated`，路由守卫无认证模式放行全部页面并把 `/login` 重定向到 `/design`，顶栏显示「本地模式」标记并隐藏用户名/退出，`meta` 失败按"需要认证"兜底；历史页新增删除（两段式内联确认） |
+| T6 Host 层 | ⏳ | 待做（Go→引擎 stdio 已由 T4.5 就绪） |
 | T7 Electron 壳 | ⏳ | 待做 |
 | T8 轻量包 | ⏳ | 待做 |
-| T9 契约一致性 + 脚本 + CI | ⏳ | 待做 |
-| T10 文档 | ⏳ | 待做（T1 的契约已先行写入 docs/api/rest.md） |
+| T9 契约一致性 + 脚本 + CI | 🔶 部分完成 | ✅ 前端 vitest 单测（5 文件 60 用例：含**两传输载荷一致性**）已落地、CI 前端 job 已加 `pnpm test`；⏳ 其余待做：`rpc-cli.ps1` / `build-desktop.ps1` / 体积门禁 / CI 六 job / Release |
+| T10 文档 | ⏳ | 待做（T1/T3 的契约已先行写入 `docs/api/rest.md` 与 `docs/api/rpc.md`；T4.5 的 stdio 变体见 `docs/api/engine.md`） |
 | T11 净机验收 | ⏳ | 待做 |
+
+> ✅ **T4.5 验证（2026-09，实测）**：新增 12 个 Go 测试（假引擎子进程走真实管道：仿真/反推往返、`code=422` 透传、
+> 超时、进程中途退出、Close 幂等、启动失败、D9 四级解析、命令行引号切分、乱序响应按 id 关联、
+> **stdio 与 HTTP 反推载荷逐字节一致**）；Go 全量测试通过、`gofmt`/`vet` 干净。
+> 真实端到端冒烟（Go `--stdio` + stdio 引擎，ITO/Ag/ITO 40-10-40）：
+> **Rs=3.970819、T@550nm=0.974497、SE@10GHz=33.7036**，与 REST 契约示例值一致（传输无关）；
+> **进程树无任何 LISTENING 端口**，且运行期间**全局未新增监听端点**（§10 第 6 项首次可满足）；
+> stdin EOF 后服务正常退出、无残留进程。
+
+> ✅ **T5 验证（2026-09，实测）**：`pnpm lint` 0 告警、`pnpm build`（`vue-tsc -b` + `vite build`）通过；
+> **契约层实测**（真实 Go 服务，两模式各起一次）：
+> jwt 模式 `meta = {auth_mode:jwt, auth_required:true, engine_transport:http}`、无 token 访问 `/api/tasks` → **401**
+> （故 Web 模式仍强制登录）；none 模式 `auth_required:false`、**无 token 建任务成功且 `user_id=local`**、
+> `DELETE /api/tasks/{id}` → `{id, deleted:true}`、删除后 `GET` → **404** —— 即前端新映射的
+> `meta` / `tasks.create` / `tasks.list` / `tasks.delete` 四条路径与后端逐一对齐。
+> ✅ **前端单测（T9 局部，已完成）**：引入 vitest + jsdom + @vue/test-utils，**5 文件 60 用例全绿**
+> （传输选择/全部端点映射/错误归一化/401 横切/**两传输载荷一致性**/能力门禁三态/路由守卫矩阵/历史页删除状态机），
+> 配置见 `frontend/vitest.config.ts`，CI 前端 job 已加 `pnpm test` 步骤。
+> ⚠️ 仍缺**浏览器端到端 / 真实 Electron 壳的冒烟**（T7/T11）：门禁在真实壳中的行为、以及跨进程 IPC 链路尚未实测。
 
 ---
 
-*本设计为第 3 稿评审件；确认后按 §11 拆解实现，并同步更新 AGENTS.md 里程碑与 HANDOVER。*
+*本设计为第 3 稿评审件；已按 §11 拆解实施（T1–T5 ✅，进度见 §13），后续同步更新 AGENTS.md 里程碑与 HANDOVER。*
