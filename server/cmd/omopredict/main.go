@@ -6,7 +6,8 @@
 //
 // 职责边界（AGENTS.md §6 分层纪律）：
 //   - 本服务只做编排与存储，不包含物理公式（物理逻辑只在 Python 引擎层）；
-//   - 引擎调用当前通过 HTTP（OMO_ENGINE_URL）；stdio 引擎传输见 docs/desktop.md T4。
+//   - 引擎调用由 OMO_ENGINE_TRANSPORT 选择传输：`http`（默认，OMO_ENGINE_URL）
+//     或 `stdio`（桌面形态，Go 作为父进程拉起引擎，不监听端口；见 task.StdioEngine）。
 package main
 
 import (
@@ -57,14 +58,16 @@ func main() {
 		log.Fatalf("migrate: %v", err)
 	}
 
-	taskSvc := task.NewService(
-		task.NewGORMStore(db),
-		task.NewEngineClient(engineURL()),
-	)
-	if engineTransport == api.EngineTransportStdio {
-		log.Println("warning: OMO_ENGINE_TRANSPORT=stdio 尚未实现（docs/desktop.md T4），" +
-			"当前仍以 HTTP 调用引擎")
+	engine, err := newEngine(engineTransport)
+	if err != nil {
+		log.Fatalf("engine: %v", err)
 	}
+	defer func() {
+		if err := engine.Close(); err != nil {
+			log.Printf("close engine: %v", err)
+		}
+	}()
+	taskSvc := task.NewService(task.NewGORMStore(db), engine)
 
 	if *stdio {
 		runStdio(taskSvc, authMode, engineTransport)
@@ -89,7 +92,6 @@ func main() {
 
 	go func() {
 		logAuthMode(authMode)
-		log.Printf("engine transport: %s", engineTransport)
 		log.Printf("omo server listening on %s", addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("server error: %v", err)
@@ -117,7 +119,6 @@ func runStdio(tasks *task.Service, authMode api.AuthMode, transport string) {
 		log.Fatalf("stdio: %v", err)
 	}
 	logAuthMode(authMode)
-	log.Printf("engine transport: %s", transport)
 	log.Println("rpc mode: stdio（JSON-RPC over stdin/stdout；日志输出到 stderr）")
 	if err := srv.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
 		log.Fatalf("rpc: %v", err)
@@ -164,4 +165,37 @@ func engineURL() string {
 		return v
 	}
 	return "http://127.0.0.1:8000"
+}
+
+// newEngine 按传输方式构造引擎客户端：http（EngineClient，默认）或 stdio（StdioEngine）。
+//
+// stdio 传输用于桌面形态（不监听任何端口，docs/desktop.md D11）。解析失败时**直接退出**，
+// 不回退到 HTTP——否则会静默违背"无端口"约束，让用户以为运行在桌面模式而实际起了端口。
+func newEngine(transport string) (task.Engine, error) {
+	if transport == api.EngineTransportStdio {
+		command, err := task.ResolveEngineCommand(task.DefaultResolveEnv())
+		if err != nil {
+			return nil, err
+		}
+		log.Printf("engine transport: stdio → %s", command)
+		return task.NewStdioEngine(command, engineTimeout()), nil
+	}
+	url := engineURL()
+	log.Printf("engine transport: http → %s", url)
+	return task.NewEngineClient(url), nil
+}
+
+// engineTimeout 单次引擎调用超时（OMO_ENGINE_TIMEOUT，默认 60s，与 HTTP 传输一致）。
+//
+// 注意：目标反推的大规模网格（引擎上限 2×10⁶ 组合）可能超过默认 60s，
+// 此时需显式调大（如 `OMO_ENGINE_TIMEOUT=10m`）。
+func engineTimeout() time.Duration {
+	if v := os.Getenv("OMO_ENGINE_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+		log.Printf("warning: OMO_ENGINE_TIMEOUT=%q 非法（需 Go duration，如 90s/10m），使用默认 %s",
+			v, task.DefaultEngineTimeout)
+	}
+	return task.DefaultEngineTimeout
 }

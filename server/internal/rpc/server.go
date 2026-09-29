@@ -68,7 +68,8 @@ type Config struct {
 	AuthMode mode.AuthMode
 	// Version 服务版本（供 ping/meta 返回与日志）。
 	Version string
-	// EngineTransport 引擎传输方式（本阶段 Go→引擎 仍走 HTTP，见 T4）。
+	// EngineTransport 引擎传输方式（仅透出给 /api/meta 与 ping/meta；
+	// Go→引擎 目前仍走 HTTP，stdio 客户端尚未实现）。
 	EngineTransport string
 }
 

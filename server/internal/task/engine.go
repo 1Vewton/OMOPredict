@@ -16,6 +16,32 @@ import (
 	"github.com/1Vewton/OMOPredict/server/internal/model"
 )
 
+// Engine 引擎调用接口：HTTP 与 stdio 两种传输实现同一契约（docs/api/engine.md）。
+//
+// 两种实现的**载荷逐字段一致**（共用同一组请求结构体与构造函数），切换传输不改变仿真数值。
+// Close 释放连接或子进程资源；HTTP 实现为 no-op。
+type Engine interface {
+	Simulate(ctx context.Context, stack model.FilmStack) (*model.TaskResult, error)
+	Optimize(ctx context.Context, spec *model.OptimizeSpec) (json.RawMessage, error)
+	Close() error
+}
+
+// simulateParams 构造 /simulate（或 RPC `simulate`）的请求体；两种传输共用以保证契约一致。
+func simulateParams(stack model.FilmStack) ([]byte, error) {
+	substrate := stack.SubstrateIndex
+	if substrate == 0 {
+		substrate = 1.5 // 与引擎默认一致
+	}
+	payload, err := json.Marshal(engineRequest{
+		Layers:         stack.Layers,
+		SubstrateIndex: substrate,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("task: marshal request: %w", err)
+	}
+	return payload, nil
+}
+
 // EngineClient 调用 Python 仿真引擎的 HTTP 客户端。
 type EngineClient struct {
 	baseURL string
@@ -34,6 +60,9 @@ func NewEngineClient(baseURL string) *EngineClient {
 		client:  &http.Client{Timeout: 60 * time.Second},
 	}
 }
+
+// Close 释放引擎客户端资源。HTTP 客户端无长连接需要关闭，实现为 no-op（满足 Engine 接口）。
+func (c *EngineClient) Close() error { return nil }
 
 // engineRequest /simulate 请求体（对应 omo.api.schemas.SimulateRequest）。
 type engineRequest struct {
@@ -55,16 +84,9 @@ type engineResponse struct {
 //   - 引擎返回非 200（含 422 校验错误，detail 透传）
 //   - 网络/超时错误
 func (c *EngineClient) Simulate(ctx context.Context, stack model.FilmStack) (*model.TaskResult, error) {
-	substrate := stack.SubstrateIndex
-	if substrate == 0 {
-		substrate = 1.5 // 与引擎默认一致
-	}
-	payload, err := json.Marshal(engineRequest{
-		Layers:         stack.Layers,
-		SubstrateIndex: substrate,
-	})
+	payload, err := simulateParams(stack)
 	if err != nil {
-		return nil, fmt.Errorf("task: marshal request: %w", err)
+		return nil, err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/simulate", bytes.NewReader(payload))

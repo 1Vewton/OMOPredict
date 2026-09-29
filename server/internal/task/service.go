@@ -16,15 +16,21 @@ import (
 )
 
 // Service 任务编排服务：创建任务并异步执行（立即返回，状态轮询查询）。
+//
+// engine 为 Engine 接口：HTTP（EngineClient）或 stdio（StdioEngine）实现，
+// 由 main 按 OMO_ENGINE_TRANSPORT 选择；本层不感知传输差异（docs/desktop.md D11）。
 type Service struct {
 	store  Store
-	engine *EngineClient
+	engine Engine
 }
 
 // NewService 构造任务服务。
-func NewService(store Store, engine *EngineClient) *Service {
+func NewService(store Store, engine Engine) *Service {
 	return &Service{store: store, engine: engine}
 }
+
+// Close 释放引擎资源（stdio 传输下会优雅关闭引擎子进程）。
+func (s *Service) Close() error { return s.engine.Close() }
 
 // CreateInput 创建任务的载荷（按 Kind 二选一填写）。
 type CreateInput struct {
