@@ -68,7 +68,7 @@ jobs:
         run: go test ./...
 
   frontend:
-    name: Frontend (lint + type-check + build)
+    name: Frontend (lint + test + type-check + build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -91,6 +91,10 @@ jobs:
 
       - name: Lint
         run: pnpm lint
+
+      # vitest（jsdom）：传输抽象/端点映射/401 横切/能力门禁/路由守卫/历史页删除
+      - name: Test (vitest)
+        run: pnpm test
 
       - name: Type-check & build
         run: pnpm build
