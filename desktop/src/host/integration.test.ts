@@ -17,6 +17,8 @@ import { promisify } from 'node:util'
 import { afterAll, describe, expect, it } from 'vitest'
 import { Host } from './host'
 import type { HostPaths } from './paths'
+import { CHANNELS, makeRpcHandler, type RpcEnvelope } from '../shell/channels'
+import { createOmoApi, type IpcInvoker } from '../shell/preloadBridge'
 
 const execFileAsync = promisify(execFile)
 
@@ -136,5 +138,81 @@ suite('Host ↔ 真实后端（OMO_BACKEND_EXE 已设置）', () => {
     // 引擎是它的子进程，stdio 传输下根本不会 bind 端口（T4.5 已用 PowerShell 全树核对过）。
     const listeners = await listeningPortsOf([host.backendPid as number])
     if (listeners !== null) expect(listeners).toEqual([])
+  }, 180_000)
+
+  /**
+   * T7 的关键验证：渲染进程看到的那条链路。
+   *
+   * 本机装不了 Electron 二进制（见 docs/desktop.md §13 的说明），所以窗口无法实跑；
+   * 但**除 Electron 传输与窗口之外**的每一环都能用真实组件串起来验证：
+   *   渲染侧 createOmoApi（preload 暴露的 window.omo）
+   *     → 假 ipcRenderer（模拟结构化克隆的跨进程边界）
+   *     → makeRpcHandler（主进程 ipcMain.handle 用的处理器）
+   *     → 真实 Host → 真实 Go 后端 → 真实 Python 引擎
+   */
+  it('渲染进程可见链路：window.omo.rpc → IPC 信封 → 真实后端', async () => {
+    if (!host) host = await Host.start({
+      paths,
+      backendCommand: backendExe as string,
+      backendArgs: ['--stdio'],
+      ...(engineCmd ? { env: { OMO_ENGINE_CMD: engineCmd } } : {}),
+    })
+
+    // 与 src/main.ts 的 registerIpc() 同构：同一个处理器工厂
+    const handle = makeRpcHandler((method, params) => host!.invoke(method, params))
+    const ipc: IpcInvoker = {
+      async invoke(channel, ...args) {
+        // 只服务白名单通道，且模拟 Electron 的结构化克隆（含错误信封）
+        if (channel !== CHANNELS.rpc) throw new Error(`未处理的通道: ${channel}`)
+        return JSON.parse(JSON.stringify(await handle(args[0]))) as RpcEnvelope
+      },
+    }
+    const omo = createOmoApi(ipc)
+
+    // 渲染进程拿到的 meta 就是门禁依据（T5）
+    await expect(omo.rpc('meta')).resolves.toMatchObject({
+      auth_required: false,
+      engine_transport: 'stdio',
+    })
+
+    // 建任务 → 轮询 → 数值与 REST 契约一致（全部经 IPC 往返）
+    const created = (await omo.rpc('tasks.create', {
+      kind: 'simulate',
+      name: 'ipc-integration',
+      layers: [
+        { material: 'ITO', thickness_nm: 40 },
+        { material: 'Ag', thickness_nm: 10 },
+        { material: 'ITO', thickness_nm: 40 },
+      ],
+    })) as { id: string; status: string }
+    expect(created.status).toBe('pending')
+
+    const deadline = Date.now() + 120_000
+    let task: {
+      status: string
+      error?: string
+      result?: {
+        sheet_resistance?: number | null
+        transmittance: { x: number; value: number }[]
+      }
+    } = { status: 'pending' }
+    while (Date.now() < deadline) {
+      task = (await omo.rpc('tasks.get', { id: created.id })) as typeof task
+      if (task.status === 'succeeded' || task.status === 'failed') break
+      await new Promise((r) => setTimeout(r, 300))
+    }
+    expect(task.status, `任务失败：${task.error ?? ''}`).toBe('succeeded')
+    expect(task.result?.sheet_resistance).toBeCloseTo(3.9708, 3)
+    expect(task.result?.transmittance.find((p) => p.x === 550)?.value).toBeCloseTo(0.9745, 3)
+
+    await expect(omo.rpc('tasks.delete', { id: created.id })).resolves.toMatchObject({
+      deleted: true,
+    })
+
+    // 错误也要原样穿过跨进程边界（前端 toApiError 依赖 code 做 401/404 分支）
+    await expect(omo.rpc('tasks.get', { id: 'no-such-task' })).rejects.toEqual({
+      code: 404,
+      message: 'task not found',
+    })
   }, 180_000)
 })
