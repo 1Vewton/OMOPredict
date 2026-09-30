@@ -61,7 +61,7 @@
 │  ├─ 渲染进程：现有 Vue 前端（dist，经自定义协议 app:// 加载）          │
 │  │     传输：window.omo.rpc(method, params)   ← 无 fetch/无 HTTP     │
 │  ├─ preload（contextIsolation，最小暴露）                            │
-│  └─ 主进程 Host 层（desktop/electron/src/host/）                     │
+│  └─ 主进程 Host 层（desktop/src/host/）+ 壳逻辑（desktop/src/shell/） │
 │        首次运行初始化 → 数据目录/密钥 → 拉起 Go 子进程 → 单实例锁      │
 │        → 菜单（关于/数据目录/日志/诊断）→ 退出回收进程树（Job Object）  │
 │             ⇅ stdio JSON-RPC 2.0（换行分隔）                        │
@@ -260,16 +260,16 @@
 
 ```
 OMOPredict/
-├── desktop/                     # 新增：Electron 壳
-│   ├── electron/
-│   │   ├── src/main.ts          # 窗口(app:// 协议)、菜单、单实例
-│   │   ├── src/host/rpc.ts      # stdio JSON-RPC 客户端（id↔Promise、超时、重启）
-│   │   ├── src/host/backend.ts  # 拉起/守护 Go 子进程、进程树回收、日志捕获
-│   │   ├── src/host/engine.ts   # 引擎发现（D9 五级）与命令拼装
-│   │   ├── src/preload.ts       # 暴露 window.omo.{rpc,version,openLogDir,openDataDir}
-│   │   └── resources/dist/      # 构建期放入 frontend/dist
-│   ├── lite/                    # setup-engine.ps1、README.txt 模板
-│   └── package.json             # electron-builder（nsis + zip）
+├── desktop/                     # Electron 壳（独立 pnpm 工程）
+│   ├── src/main.ts              # 主进程：窗口(app:// 协议)、菜单、IPC、生命周期（T7）
+│   ├── src/preload.ts           # contextBridge 暴露 window.omo.{rpc,openLogDir,openDataDir}（T7）
+│   ├── src/host/                # Host 层（T6，**不含 Electron**，故可纯 Node 单测）：
+│   │                            #   paths / logger / lines / rpc / backend / engine / singleton / host
+│   ├── src/shell/               # 壳逻辑（T7，同样与 Electron 解耦以便单测）：
+│   │                            #   appProtocol（app:// 解析 + CSP）· channels（IPC 通道与信封）
+│   │                            #   preloadBridge · menu · windowOptions · backendCommand · diagnostics
+│   ├── test/fixtures/           # 假后端（真子进程，走真管道）
+│   └── package.json             # electron-builder 配置（nsis + zip）；打包脚本属 T8/T9
 ├── frontend/src/api/            # transport.ts（http | ipc）+ client.ts（401 横切）+ token.ts + meta.ts；
 │                                # auth.ts/tasks.ts 改为经 client 调用（T5 完成，见 §13）
 ├── server/internal/rpc/         # 新增：stdio JSON-RPC 分发器（复用 task/user 服务）
@@ -313,7 +313,7 @@ OMOPredict/
 | 纯前端（Web） | `pnpm dev`（Vite 代理 → Go :8080，jwt 模式）；前端自动走 http 传输 |
 | 壳开发 | Go/引擎按普通方式启动；壳 dev 模式加载 `http://localhost:5173`，Host 跳过子进程拉起（`OMO_DESKTOP_DEV=1`） |
 | 无壳本地调试 | `scripts/start-local.ps1`（Go `--stdio` + 引擎 `omo.rpc` + `rpc-cli.ps1` 手工联调） |
-| 完整包/轻量包 | `build-desktop.ps1` / `build-lite.ps1`；产物在 `desktop/electron/dist/` |
+| 完整包/轻量包 | `build-desktop.ps1` / `build-lite.ps1`（T8/T9）；产物在 `desktop/release/` |
 | RPC 手工验证 | `rpc-cli.ps1 '{"jsonrpc":"2.0","id":1,"method":"tasks.list","params":{}}'` |
 
 ---
@@ -403,7 +403,7 @@ OMOPredict/
 | T4.5 Go stdio 引擎传输 | ✅ 完成 | `internal/task/engine_stdio.go`：`StdioEngine`（惰性拉起引擎子进程、JSON-Lines 收发、按 id 关联乱序响应、单次调用超时、引擎退出即在途请求立即失败、Close 优雅收尾超时 3s 强杀；stdout 仅协议、引擎 stderr 并入本进程）+ `engine_resolve.go`：`ResolveEngineCommand`（D9 1–4 级，含引号路径切分）+ `Engine` 接口使 HTTP/stdio **共用同一载荷构造**（`simulateParams`）；`main.go` 按 `OMO_ENGINE_TRANSPORT` 选传输并在 stdio 解析失败时**启动即退出**（不静默回退 HTTP） |
 | T5 前端传输抽象 + 门禁 | ✅ 完成 | `api/transport.ts`（`Transport` 接口 + 方法→端点映射 + `ipcTransport`/`httpTransport` + `activeTransport()`：检测 `window.omo` 选 IPC，否则 HTTP，可用 `setTransport()` 覆盖）+ `api/client.ts`（统一入口，401 → 清凭证 + 广播 `omo:unauthorized`）+ `api/token.ts`（凭证，单用户模式不参与）+ `api/meta.ts`；**能力门禁**：`main.ts` 挂载前 `bootstrap()` 拉 `meta`，auth store 增 `authRequired`/`isLocalMode`/`isAuthenticated`，路由守卫无认证模式放行全部页面并把 `/login` 重定向到 `/design`，顶栏显示「本地模式」标记并隐藏用户名/退出，`meta` 失败按"需要认证"兜底；历史页新增删除（两段式内联确认） |
 | T6 Host 层 | ✅ 完成 | `desktop/src/host/`（**Electron 无关的纯 Node 模块**）：`paths`（D6 数据/日志目录，按目标平台选路径语义）+ `logger`（D7 按天日志、保留 7 天、目录不可用时退化为仅回显）+ `lines`（JSON-Lines 分帧：跨 chunk 半行、超长行丢弃）+ `rpc`（id↔Promise、单次超时、错误码=HTTP 语义、非法行/未知 id 只上报协议错误）+ `backend`（spawn、ping 健康检查、stderr 落盘、**退出时立刻失效在途请求**、限速重启、优雅关闭+超时强杀进程树、stdout 污染容忍）+ `engine`（只做 Go 看不到的引擎来源探测 + D9 第 5 级指引）+ `singleton`（文件锁）+ `host`（组装并注入 D6 环境变量，默认 `OMO_ENGINE_TRANSPORT=stdio`） |
-| T7 Electron 壳 | ⏳ | 待做（Host 层已就绪，main/preload 只需接 `Host.invoke` 与 `window.omo`） |
+| T7 Electron 壳 | ✅ 完成（**未做运行期启动验证**，见下） | `src/main.ts`（主进程接线：单实例锁 + 聚焦已有窗口、`app://` 协议、菜单、IPC、优雅退出回收后端）、`src/preload.ts`（contextBridge 白名单，仅暴露 `rpc`/`openLogDir`/`openDataDir`）、`src/shell/`（与 Electron 解耦的壳逻辑：`appProtocol` app:// 解析 + 目录穿越防护 + CSP/安全头、`channels` IPC 通道与**结果信封**（避免 Electron 压掉 Error 的 `code`）、`preloadBridge`、`menu`、`windowOptions` 安全基线、`backendCommand` 打包/开发期定位、`diagnostics` 脱敏诊断）、`package.json` 的 electron-builder 配置（nsis + zip，extraResources：`dist/` + `omopredict-server.exe`） | `tsc --noEmit` **对真实 Electron 类型**干净（校验了 app/BrowserWindow/protocol/Menu/ipcMain 的全部用法）；**150 单测**（12 文件；含 app:// 目录穿越 5 种编码变体、CSP 无网络、IPC 信封跨进程边界、菜单/窗口安全基线、诊断脱敏）；集成测试新增**渲染进程可见链路**（`window.omo.rpc` → IPC 信封 → 真实 Go → 真实引擎，含 404 跨界） |
 | T8 轻量包 | ⏳ | 待做 |
 | T9 契约一致性 + 脚本 + CI | 🔶 部分完成 | ✅ 前端 vitest 单测（5 文件 60 用例：含**两传输载荷一致性**）已落地、CI 前端 job 已加 `pnpm test`；⏳ 其余待做：`rpc-cli.ps1` / `build-desktop.ps1` / 体积门禁 / CI 六 job / Release |
 | T10 文档 | ⏳ | 待做（T1/T3 的契约已先行写入 `docs/api/rest.md` 与 `docs/api/rpc.md`；T4.5 的 stdio 变体见 `docs/api/engine.md`） |
@@ -439,6 +439,25 @@ OMOPredict/
 > → `tasks.delete` → **后端进程无 LISTENING 端口**（§10.6）→ 退出 `code=0 expected=true`，无残留。
 > ⚠️ 仍未做：Host 的 lint/format 配置与 CI job（T9）；Electron 壳本身（T7）。
 
+> ✅ **T7 验证（2026-09，实测）**：`tsc --noEmit` 对**真实 Electron 类型**（electron 44.4.5）干净——
+> 这把主进程/preload 里 `app`/`BrowserWindow`/`protocol.handle`/`Menu`/`ipcMain`/`dialog`
+> 的用法都静态校验了一遍；`desktop/` 测试增至 **12 文件 150 用例**（+1 集成默认跳过）：
+> - `app://` 解析：命中文件 / 根路径 / 深链 SPA 回退 / 目录请求回退 / 百分号解码，
+>   以及**目录穿越的 5 种变体**（明文 `..`、`%2e%2e%2f`、`..%5c`、盘符绝对路径、NUL 字节）全部被挡；
+> - CSP 断言 `connect-src 'none'`（桌面形态渲染进程不该有任何网络能力）；
+> - **IPC 契约闭环**：主进程处理器 → 信封 → preload 还原 → 前端 `toApiError` 可用的 `{code,message}`，
+>   含 404/422/code 0/-32601 四种语义；
+> - 菜单含 D7 要求的排障入口且不含业务动作；窗口选项断言上下文隔离 + 沙箱 + 无 Node + 关 webview；
+> - 后端定位（env/打包/仓库构建产物三来源 + 缺失时的可操作报错）；诊断**脱敏**（密钥不得进诊断包）。
+> **真实的渲染进程可见链路已实跑通过**（集成测试）：`window.omo.rpc('meta')` → IPC 信封 → **真实 Go 后端**
+> → **真实 Python 引擎** → `tasks.create` → 轮询 `succeeded` → Rs≈3.9708 / T@550nm≈0.9745 →
+> `tasks.delete` → 不存在的任务返回**跨进程的 404**。
+>
+> ⚠️ **未做运行期启动验证（如实记录）**：本机无法下载 Electron 二进制（约 100MB+，本环境拉包速率极低），
+> 因此 `main.ts` 的**窗口真的能打开、`app://` 页面真的能渲染、CSP 是否误伤**这几件事**没有实跑过**——
+> 按 §10 的清单，这些属 **T11 净机验收**。同理，electron-builder 的 `build` 配置只是**布局契约**，
+> 真正的打包脚本与体积门禁属 T8/T9。
+
 ---
 
-*本设计为第 3 稿评审件；已按 §11 拆解实施（T1–T6 ✅、T9 部分，进度见 §13），后续同步更新 AGENTS.md 里程碑与 HANDOVER。*
+*本设计为第 3 稿评审件；已按 §11 拆解实施（T1–T7 ✅、T9 部分，进度见 §13），后续同步更新 AGENTS.md 里程碑与 HANDOVER。*

@@ -52,14 +52,14 @@ Web 形态（现行默认）
 └────────────┘              └──────────────┘          └──────────────┘         └──────────────┘
 ```
 
-> ✅ **桌面形态已完成到 T6**：单用户模式、任务删除、Go 侧 RPC 分发器、引擎侧 `omo.sim` + `omo.rpc`、
-> **Go→引擎 stdio 传输**（T4.5）、**前端传输抽象 + `meta` 能力门禁**（T5）、**Electron Host 层**（T6，
-> `desktop/src/host/`：数据目录/日志/单实例/引擎来源/Go 子进程守护 + stdio JSON-RPC 客户端）。
-> `OMO_ENGINE_TRANSPORT=stdio` 时 Go 作为父进程拉起引擎（`python -m omo.rpc`），
-> 全程**不监听任何端口**（已实测满足 docs/desktop.md §10.6）；引擎启动命令按
-> `OMO_ENGINE_CMD` → 完整包 sidecar → `uv` → `python` 四级解析（`server/internal/task/engine_resolve.go`）。
-> 前端 `activeTransport()` 依 `window.omo` 自动选 IPC/HTTP，据 `meta.auth_required` 决定是否要求登录。
-> 仍未做：**T7–T11**（Electron 壳 main/preload、轻量包、CI 产物与体积门禁、净机验收）。
+> ✅ **桌面形态已完成到 T7**：单用户模式、任务删除、Go 侧 RPC 分发器、引擎侧 `omo.sim` + `omo.rpc`、
+> **Go→引擎 stdio 传输**（T4.5）、**前端传输抽象 + `meta` 能力门禁**（T5）、**Electron Host 层**（T6）、
+> **Electron 壳**（T7：主进程 + preload + `app://` 协议 + 菜单 + IPC）。
+> 引擎启动命令按 `OMO_ENGINE_CMD` → 完整包 sidecar → `uv` → `python` 四级解析
+> （`server/internal/task/engine_resolve.go`）；前端 `activeTransport()` 依 `window.omo` 自动选 IPC/HTTP。
+> 全程**不监听任何端口**（已实测满足 docs/desktop.md §10.6）。
+> 仍未做：**T8–T11**（轻量包、打包脚本与体积门禁、文档收尾、**净机验收**——
+> 其中"壳真的能启动并渲染"必须由 T11 在装上 Electron 二进制的机器上验证）。
 
 ---
 
@@ -146,13 +146,18 @@ OMOPredict/
 │   │   ├── rpc/               # stdio JSON-RPC 传输层（M6-a T4：ping/simulate/optimize）
 │   │   └── cli/               # 命令行入口（omo-cli：--version/--info/optimize）
 │   └── tests/                 # 单元测试 + 文献基准测试 + RPC/import 图测试
-├── desktop/                   # ── 桌面壳（Electron）──（T6 Host 层完成；T7 壳待做）
-│   ├── package.json           # 独立 pnpm 工程（T6 不含 electron 依赖，随 T7 引入）
-│   ├── vitest.config.ts       # Host 层单测（node 环境，会真拉起子进程）
-│   ├── src/host/              # Host 层（**不含 Electron**，故可纯 Node 单测）：
+├── desktop/                   # ── 桌面壳（Electron）──（T6 Host 层 + T7 壳；运行期验证属 T11）
+│   ├── package.json           # 独立 pnpm 工程 + electron-builder 配置（打包脚本属 T8/T9）
+│   ├── vitest.config.ts       # 单测（node 环境，会真拉起子进程）
+│   ├── src/main.ts            # 主进程接线：窗口(app:// 协议)、菜单、IPC、单实例、优雅退出（T7）
+│   ├── src/preload.ts         # contextBridge 白名单 → window.omo（T7）
+│   ├── src/host/              # Host 层（T6，**不含 Electron**，故可纯 Node 单测）：
 │   │                          #   paths 数据/日志目录 · logger 按天日志 · lines JSON-Lines 分帧
 │   │                          #   rpc stdio JSON-RPC 客户端 · backend Go 子进程守护（重启限速/进程树回收）
 │   │                          #   engine 引擎来源探测与友好指引 · singleton 单实例锁 · host 组装
+│   ├── src/shell/             # 壳逻辑（T7，与 Electron 解耦以便单测）：appProtocol（app:// + CSP）
+│   │                          #   channels（IPC 通道/信封）· preloadBridge · menu · windowOptions
+│   │                          #   backendCommand（打包/开发期定位）· diagnostics（脱敏）
 │   └── test/fixtures/         # 假后端（真子进程，走真管道）
 ├── server/                    # ── Go 中间层 ──（M3 完成；M6-a 增单用户模式与 RPC 分发器）
 │   ├── cmd/omopredict/        # 主程序入口（HTTP 服务；--stdio 走 stdio JSON-RPC）
@@ -185,20 +190,20 @@ OMOPredict/
         └── styles/            # 全局样式
 ```
 
-> 当前仓库处于 **M6-b 阶段（T1–T6 已完成）**：M4 前端与 M5（引擎反推 v1 + API/前端接入 v2）全部落地，
-> 桌面形态基础亦已就位——单用户模式（`OMO_AUTH_MODE=none` + `GET /api/meta`）、
+> 当前仓库处于 **M6-b 阶段（T1–T7 已完成）**：M4 前端与 M5（引擎反推 v1 + API/前端接入 v2）全部落地，
+> 桌面形态亦已成形——单用户模式（`OMO_AUTH_MODE=none` + `GET /api/meta`）、
 > 任务删除（`DELETE /api/tasks/{id}`）、Go 侧 stdio RPC 分发器（`omopredict --stdio`）、
 > 引擎侧中立编排层 `omo.sim` + `omo.rpc` 入口 + 可选依赖化（基础仅 numpy/scipy）、
-> **Go→引擎 stdio 传输**（`OMO_ENGINE_TRANSPORT=stdio`，引擎发现 1–4 级；实测无监听端口）、
-> **前端传输抽象与能力门禁**（`window.omo` → IPC，否则 HTTP；`meta.auth_required=false` 时跳过登录）、
-> **桌面 Host 层**（`desktop/`：Electron 无关的纯 Node 模块，含子进程守护与单实例锁）。
+> **Go→引擎 stdio 传输**（实测无监听端口）、**前端传输抽象与能力门禁**、
+> **桌面 Host 层**与 **Electron 壳**（主进程 + preload + `app://` + 菜单 + IPC）。
 > 测试现状：Python **132 passed** / ruff 0；Go 全量测试通过（含 12 个 stdio 引擎用例）；
 > 前端 `pnpm lint` 0 告警 + `pnpm test`（5 文件 60 用例）+ `pnpm build` 通过；
-> 桌面 `pnpm type-check` + `pnpm test`（**91 用例 + 1 个真实端到端集成测试**）通过。
-> API 契约见 `docs/api/`（rest / engine / rpc）。
+> 桌面 `pnpm type-check`（对真实 Electron 类型）+ `pnpm test`（**12 文件 150 用例**，
+> 另有 2 个需环境变量门控的真实端到端集成用例，已实跑通过）。API 契约见 `docs/api/`（rest / engine / rpc）。
 >
-> **下一步 T7（Electron 壳）**：窗口（`app://` 协议）、菜单、preload（按 T5 固化的
-> `window.omo.rpc(method, params)` 契约）、electron-builder 打包。Host 层已就绪，只需接线。
+> ⚠️ **"壳真的能启动并渲染"仍未验证**：本环境装不了 Electron 二进制，属 **T11 净机验收**。
+> **下一步 T8–T9**：轻量包（`setup-engine.ps1` + README 模板）、打包脚本 `build-desktop.ps1`/`build-lite.ps1`、
+> 体积门禁、CI 补齐与 Release；随后 T10 文档收尾、T11 净机验收。
 
 ---
 
@@ -213,10 +218,10 @@ OMOPredict/
 | **M3** | Go 中间层 | 用户系统、膜结构/任务数据模型、任务编排、REST API |
 | **M4** | Vue 前端 | 参数设计页、仿真结果图表、任务历史、对标对比展示（**已完成**：登录/注册、膜层设计、ECharts 结果图、任务历史） |
 | **M5** | 优化与工艺指导 | 参数优化、灵敏度分析、报告导出（**v1 引擎反推 + v2 API/前端接入均已完成**：约束网格扫描 + FoM 排序 + 逐层灵敏度/工艺窗口；引擎 `POST /optimize` → Go `kind=optimize` → 前端「目标反推」页；剩余：报告导出、高级寻优、NN 代理加速） |
-| **M6** | 集成与打磨 | 端到端联调、文档完善、示例数据与演示；**扩展：桌面版**（M6-a T1–T5 + **T6** ✅ 单用户模式 / 任务删除 / Go RPC 分发器 / 引擎编排下沉 / **Go→引擎 stdio 传输** / **前端传输抽象+能力门禁** / **Electron Host 层**；M6-b T7 ⏳ Electron 壳；M6-c T8–T9 ⏳ 轻量包 / CI 产物与体积门禁；M6-d T10–T11 ⏳ 文档 / 净机验收） |
+| **M6** | 集成与打磨 | 端到端联调、文档完善、示例数据与演示；**扩展：桌面版**（M6-a/b T1–**T7** ✅ 单用户模式 / 任务删除 / Go RPC 分发器 / 引擎编排下沉 / **Go→引擎 stdio 传输** / **前端传输抽象+能力门禁** / **Electron Host 层** / **Electron 壳**；M6-c T8–T9 ⏳ 轻量包 / 打包脚本与体积门禁 / CI 补齐；M6-d T10–T11 ⏳ 文档收尾 / **净机验收（含壳运行期验证）**） |
 
-**当前进度**：M4 ✅ + M5 ✅（v1 引擎反推 19 测试全过、默认 4k 组合 ~3 s；v2 API/前端接入端到端冒烟通过）+ **M6-a/b ✅（T1–T6：桌面基础 + stdio 双链路 + 前端门禁 + Host 层）**。
-下一步 **T7（Electron 壳：窗口/app 协议/菜单/preload/打包）**；"无端口"已由 T4.5 解锁并实测（见 §2）。
+**当前进度**：M4 ✅ + M5 ✅（v1 引擎反推 19 测试全过、默认 4k 组合 ~3 s；v2 API/前端接入端到端冒烟通过）+ **M6-a/b ✅（T1–T7：桌面双链路 + 前端门禁 + Host 层 + Electron 壳）**。
+下一步 **T8–T9（轻量包与打包/CI）**；"无端口"已由 T4.5 解锁并实测（见 §2），**壳运行期验证属 T11**。
 
 **阶段完成标准**：每个里程碑必须有可运行的代码 + 测试通过 + 文档更新，不允许"只写代码不验证"。
 
@@ -279,12 +284,13 @@ cd frontend && pnpm lint                  # ESLint（0 告警为通过标准）
 cd frontend && pnpm test                  # vitest 单测（jsdom；传输/门禁/守卫/历史页删除）
 cd frontend && pnpm build                 # vue-tsc -b + vite build
 
-# 桌面壳（Host 层，T6）
+# 桌面壳（Host 层 T6 + Electron 壳 T7）
 cd desktop && pnpm install
-cd desktop && pnpm type-check             # tsc --noEmit（strict）
+cd desktop && pnpm type-check             # tsc --noEmit（含真实 Electron 类型）
 cd desktop && pnpm test                   # vitest（node；用例会真拉起子进程）
 # 真实端到端集成测试默认跳过，需显式给出后端与引擎（详见 desktop/README.md）：
 #   OMO_BACKEND_EXE=<omopredict.exe> OMO_ENGINE_CMD='python -m omo.rpc' pnpm vitest run src/host/integration.test.ts
+# 启动壳（需 Electron 二进制；本环境尚未下载，见 docs/desktop.md §13）：pnpm exec electron dist/main.js
 ```
 
 > 端到端联调步骤、端口占用与其它环境坑见 `docs/HANDOVER.md` §3 与 §6。
@@ -305,4 +311,4 @@ cd desktop && pnpm test                   # vitest（node；用例会真拉起�
 
 ---
 
-*最后更新：T6（Electron Host 层）完成。每次架构、物理模型或里程碑变更时，记得同步更新本文件。*
+*最后更新：T7（Electron 壳）完成。每次架构、物理模型或里程碑变更时，记得同步更新本文件。*
