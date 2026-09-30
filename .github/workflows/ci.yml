@@ -1,4 +1,4 @@
-# CI —— Python 数据科学层（M0 起）+ Go 中间层（M3 起）+ 前端（M4 起）
+# CI —— Python 数据科学层（M0 起）+ Go 中间层（M3 起）+ 前端（M4 起）+ 桌面 Host 层（T6 起）
 name: CI
 
 on:
@@ -98,3 +98,33 @@ jobs:
 
       - name: Type-check & build
         run: pnpm build
+
+  # 桌面 Host 层（T6）。用例会真拉起子进程（假后端 fixture 走真管道），
+  # 真实后端+引擎的集成测试由 OMO_BACKEND_EXE 门控，CI 上默认跳过（见 desktop/README.md）。
+  desktop:
+    name: Desktop host (type-check + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: desktop/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check
+        run: pnpm type-check
+
+      - name: Test (vitest)
+        run: pnpm test
