@@ -1,0 +1,22 @@
+# 依赖与构建产物
+node_modules/
+dist/
+
+# 集成测试的临时数据目录（OMO_INTEGRATION_DIR 常被指到这里）
+.itest/
+.tmp-*/
+
+# 日志
+logs/
+*.log
+
+# 编辑器与系统
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

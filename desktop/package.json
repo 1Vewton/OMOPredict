@@ -1,0 +1,18 @@
+{
+  "name": "omopredict-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@11.7.0",
+  "description": "OMOPredict 桌面壳（Electron）：Host 层拉起并守护 Go 中间层（docs/desktop.md T6）",
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "~5.8.3",
+    "vitest": "^5.0.2"
+  }
+}
