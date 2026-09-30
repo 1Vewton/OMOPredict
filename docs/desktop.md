@@ -402,8 +402,8 @@ OMOPredict/
 | T4 引擎编排下沉 + RPC 入口 | ✅ 完成 | 新增中立层 `omo.sim`（spec/result dataclass + 领域校验，Web/桌面共用）；`omo/api/service.py` 变薄适配；新增 `omo/rpc`（stdio JSON-RPC：ping/simulate/optimize，应用错误 422、协议保留码）；**可选依赖化**（基础仅 numpy/scipy，`api`/`neural`/`plot` 为 extras）+ import 图测试（子进程断言不导入 torch/matplotlib/fastapi/uvicorn/pydantic）；新增 35 测试（含 RPC↔HTTP 载荷一致性） |
 | T4.5 Go stdio 引擎传输 | ✅ 完成 | `internal/task/engine_stdio.go`：`StdioEngine`（惰性拉起引擎子进程、JSON-Lines 收发、按 id 关联乱序响应、单次调用超时、引擎退出即在途请求立即失败、Close 优雅收尾超时 3s 强杀；stdout 仅协议、引擎 stderr 并入本进程）+ `engine_resolve.go`：`ResolveEngineCommand`（D9 1–4 级，含引号路径切分）+ `Engine` 接口使 HTTP/stdio **共用同一载荷构造**（`simulateParams`）；`main.go` 按 `OMO_ENGINE_TRANSPORT` 选传输并在 stdio 解析失败时**启动即退出**（不静默回退 HTTP） |
 | T5 前端传输抽象 + 门禁 | ✅ 完成 | `api/transport.ts`（`Transport` 接口 + 方法→端点映射 + `ipcTransport`/`httpTransport` + `activeTransport()`：检测 `window.omo` 选 IPC，否则 HTTP，可用 `setTransport()` 覆盖）+ `api/client.ts`（统一入口，401 → 清凭证 + 广播 `omo:unauthorized`）+ `api/token.ts`（凭证，单用户模式不参与）+ `api/meta.ts`；**能力门禁**：`main.ts` 挂载前 `bootstrap()` 拉 `meta`，auth store 增 `authRequired`/`isLocalMode`/`isAuthenticated`，路由守卫无认证模式放行全部页面并把 `/login` 重定向到 `/design`，顶栏显示「本地模式」标记并隐藏用户名/退出，`meta` 失败按"需要认证"兜底；历史页新增删除（两段式内联确认） |
-| T6 Host 层 | ⏳ | 待做（Go→引擎 stdio 已由 T4.5 就绪） |
-| T7 Electron 壳 | ⏳ | 待做 |
+| T6 Host 层 | ✅ 完成 | `desktop/src/host/`（**Electron 无关的纯 Node 模块**）：`paths`（D6 数据/日志目录，按目标平台选路径语义）+ `logger`（D7 按天日志、保留 7 天、目录不可用时退化为仅回显）+ `lines`（JSON-Lines 分帧：跨 chunk 半行、超长行丢弃）+ `rpc`（id↔Promise、单次超时、错误码=HTTP 语义、非法行/未知 id 只上报协议错误）+ `backend`（spawn、ping 健康检查、stderr 落盘、**退出时立刻失效在途请求**、限速重启、优雅关闭+超时强杀进程树、stdout 污染容忍）+ `engine`（只做 Go 看不到的引擎来源探测 + D9 第 5 级指引）+ `singleton`（文件锁）+ `host`（组装并注入 D6 环境变量，默认 `OMO_ENGINE_TRANSPORT=stdio`） |
+| T7 Electron 壳 | ⏳ | 待做（Host 层已就绪，main/preload 只需接 `Host.invoke` 与 `window.omo`） |
 | T8 轻量包 | ⏳ | 待做 |
 | T9 契约一致性 + 脚本 + CI | 🔶 部分完成 | ✅ 前端 vitest 单测（5 文件 60 用例：含**两传输载荷一致性**）已落地、CI 前端 job 已加 `pnpm test`；⏳ 其余待做：`rpc-cli.ps1` / `build-desktop.ps1` / 体积门禁 / CI 六 job / Release |
 | T10 文档 | ⏳ | 待做（T1/T3 的契约已先行写入 `docs/api/rest.md` 与 `docs/api/rpc.md`；T4.5 的 stdio 变体见 `docs/api/engine.md`） |
@@ -428,6 +428,17 @@ OMOPredict/
 > 配置见 `frontend/vitest.config.ts`，CI 前端 job 已加 `pnpm test` 步骤。
 > ⚠️ 仍缺**浏览器端到端 / 真实 Electron 壳的冒烟**（T7/T11）：门禁在真实壳中的行为、以及跨进程 IPC 链路尚未实测。
 
+> ✅ **T6 验证（2026-09，实测）**：`desktop/` 下 9 个测试文件（**91 通过 + 1 跳过**）+ `tsc --noEmit` 干净。
+> 用例真拉起子进程（假后端 fixture 走真管道）覆盖：分帧跨 chunk/超长行、乱序响应按 id 关联、超时与
+> HTTP 语义错误码、**崩溃时在途请求立即失败**、就绪后崩溃自动重启、**重启限速超限后停止并置 failed**、
+> **启动阶段失败不自动重启**（避免对着配置错误空转）、可执行文件缺失快速失败、优雅退出与超时强杀、
+> 单实例锁（含陈旧锁回收、同进程重复获取也拦）、日志跨天轮转与保留期清理、D6 环境变量形态。
+> **真实端到端（`OMO_BACKEND_EXE` 门控的集成测试，已实跑通过）**：Host → Go `--stdio`
+> （日志显示 `engine transport: stdio → …python.exe -m omo.rpc（来源 OMO_ENGINE_CMD）`、`auth mode: none`）
+> → 真实 Python 引擎 → `tasks.create` → 轮询 `succeeded` → **Rs≈3.9708 / T@550nm≈0.9745 / SE@10GHz≈33.70**
+> → `tasks.delete` → **后端进程无 LISTENING 端口**（§10.6）→ 退出 `code=0 expected=true`，无残留。
+> ⚠️ 仍未做：Host 的 lint/format 配置与 CI job（T9）；Electron 壳本身（T7）。
+
 ---
 
-*本设计为第 3 稿评审件；已按 §11 拆解实施（T1–T5 ✅，进度见 §13），后续同步更新 AGENTS.md 里程碑与 HANDOVER。*
+*本设计为第 3 稿评审件；已按 §11 拆解实施（T1–T6 ✅、T9 部分，进度见 §13），后续同步更新 AGENTS.md 里程碑与 HANDOVER。*

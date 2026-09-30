@@ -32,7 +32,9 @@ OMO（氧化物/金属/氧化物）纳米多层薄膜仿真设计软件：三层
 | **M6-a T4.5** | ✅ | **Go 侧 stdio 引擎传输**：`Engine` 接口（HTTP/stdio 同契约）+ `StdioEngine`（惰性子进程、id↔响应、超时、进程退出即在途失败、优雅关闭）+ `ResolveEngineCommand`（D9 1–4 级）；`OMO_ENGINE_TRANSPORT/OMO_ENGINE_CMD/OMO_ENGINE_PROJECT/OMO_ENGINE_TIMEOUT` | 新增 12 Go 测试（假引擎子进程走真实管道：仿真/反推往返、422 透传、超时、中途退出、Close 幂等、四级解析、引号切分、乱序关联、**stdio↔HTTP 载荷逐字节一致**）；真实端到端冒烟：Rs=3.970819 / T@550nm=0.974497 / SE@10GHz=33.7036（与 REST 契约一致）+ **进程树无监听端口、运行期间无新增监听端点** + 退出无残留 |
 | **M6-a T5** | ✅ | **前端传输抽象 + 能力门禁**：`api/transport.ts`（`Transport` + 方法→端点映射 + http/ipc 两实现 + `activeTransport()` 检测 `window.omo`）、`api/client.ts`（401 横切）、`api/token.ts`、`api/meta.ts`；`main.ts` 挂载前拉 `meta`，auth store 增 `authRequired`/`isLocalMode`，路由守卫无认证模式放行并重定向 `/login`，顶栏「本地模式」标记；历史页新增删除（两段式内联确认） | `pnpm lint` 0 告警 + `pnpm build`（`vue-tsc -b` + `vite build`）通过；**契约层实测**：jwt 模式 `auth_required=true` 且无 token 访问任务接口 401，none 模式 `auth_required=false`、无 token 建任务（`user_id=local`）、`DELETE` → `{id,deleted:true}`、删后 404 |
 
-测试现状：Python **132 passed / ruff 0**（2026-09 文件权限修复后不再有 tmp_path 报错，见 §6.22；此前记录的"128 passed + 4 个 PermissionError"已过时）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流、单用户模式与 **12 个 stdio 引擎用例**）；前端 `pnpm lint` 0 告警 + `pnpm test`（**vitest：5 文件 60 用例**）+ `pnpm build`（`vue-tsc -b` + `vite build`）通过。
+| **M6-b T6** | ✅ | **桌面 Host 层**（`desktop/src/host/`，**Electron 无关的纯 Node 模块**）：`paths`（D6 数据/日志目录，按目标平台选路径语义）、`logger`（D7 按天日志+保留 7 天，目录不可用则退化为仅回显）、`lines`（JSON-Lines 分帧）、`rpc`（id↔Promise、超时、错误码=HTTP 语义、非法行只报协议错误）、`backend`（spawn/ping/日志捕获/**退出即失效在途请求**/限速重启/超时强杀进程树/stdout 污染容忍）、`engine`（只做 Go 看不到的来源探测 + D9 第 5 级指引）、`singleton`（文件锁）、`host`（组装并注入 D6 环境变量，默认 `OMO_ENGINE_TRANSPORT=stdio`） | `tsc --noEmit` 干净；**91 单测 + 1 集成测试**（真子进程走真管道：分帧/乱序关联/超时/崩溃即在途失败/重启限速/启动失败不重启/锁回收/日志轮转）；**真实端到端**：Host → Go `--stdio` → 真实引擎 → Rs≈3.9708 / T@550nm≈0.9745 / SE@10GHz≈33.70 + **后端无监听端口** + 退出无残留 |
+
+测试现状：Python **132 passed / ruff 0**（2026-09 文件权限修复后不再有 tmp_path 报错，见 §6.22；此前记录的"128 passed + 4 个 PermissionError"已过时）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流、单用户模式与 **12 个 stdio 引擎用例**）；前端 `pnpm lint` 0 告警 + `pnpm test`（**vitest：5 文件 60 用例**）+ `pnpm build`（`vue-tsc -b` + `vite build`）通过；桌面 `desktop/`：`pnpm type-check` + `pnpm test`（**91 用例**，另含 1 个需环境变量门控的真实端到端集成测试）通过。
 
 ## 3. 三层架构与启动
 
@@ -93,6 +95,11 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
 `main.ts` 在挂载前先 `auth.bootstrap()`（避免单用户模式下闪一下登录页）。
 **IPC 契约**（由 T6/T7 的 preload 实现）：`window.omo.rpc(method, params)`，失败 reject 带 HTTP 语义 `code`；
 `window.omo` 缺席即视为 Web 形态走 HTTP。
+
+**desktop/**（T6 完成，见 `desktop/README.md`）：`src/host/` 是**Electron 无关的纯 Node 模块**（故可纯 Node 单测）——
+`paths`/`logger`/`lines`/`rpc`/`backend`/`engine`/`singleton`/`host`；`test/fixtures/fake-backend.mjs` 为真子进程假后端；
+`src/host/integration.test.ts` 是需环境变量门控的真实端到端测试（`OMO_BACKEND_EXE` + `OMO_ENGINE_CMD`，受限环境再加 `OMO_INTEGRATION_DIR`）。
+T7 只需新增 `src/main.ts`（窗口/`app://`/菜单）与 `src/preload.ts`（暴露 `window.omo`），并引入 electron 依赖。
 
 ## 5. 文档索引
 
@@ -176,6 +183,13 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
     - **附带收益**：此前记为"环境限制"的 4 个 Python `tmp_path` 用例报错一并消失，Python 由 128 passed(+4 errors)
       变为 **132 passed**（§2）。
     - 报告留在 `D:\PyLearn\omo-acl-recovery\acl-report-*.jsonl`；回滚用同目录的 `acl-backup-*.json.ps1`。
+23. **⚠️ 本沙箱下 `%TEMP%` 写不了 SQLite（T6 实测）**：把 Go 后端的 `OMO_DB_DSN` 指到
+    `%TEMP%\...db` 时，modernc sqlite 会报 `unable to open database file: out of memory (14)`
+    （数字 14 是 SQLITE_CANTOPEN，提示语有误导性），**与代码无关**——同一二进制把 DSN 放到工作区内就正常。
+    同类现象还有 Go 遥测写 `%APPDATA%\go\telemetry` 被拒（§6.2 的注释与 Go 测试输出）。
+    → 在受限环境里跑集成测试/冒烟时，把数据目录指到工作区内：
+    `desktop` 的集成测试支持 `OMO_INTEGRATION_DIR=<工作区内目录>`；桌面应用自身默认用
+    `%LOCALAPPDATA%\OMOPredict`（真实用户机器上可写，仅本沙箱受限）。
 
 ## 7. 未完成事项与后续计划
 
@@ -228,15 +242,31 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
     `isLocalMode`、`isAuthenticated = !authRequired || token`；路由守卫在无认证模式放行全部页面并把 `/login` 送到 `/design`；
     `App.vue` 显示「本地模式」标记并隐藏用户名/退出，且忽略本地模式下的 `omo:unauthorized`；
   - 历史页删除：两段式内联确认（不用原生 `confirm`，嵌入式 webview 可能禁用）；
-  - **前端仍无测试框架**：`transport.ts`/`client.ts` 的假传输单测按 docs/desktop.md §7 属 T9；门禁的浏览器行为尚未实测。
+  - 前端单测已由 T9 局部补齐（见下）；门禁的浏览器行为仍**未经浏览器实测**。
 
-**M6-b 剩余（T6–T11）—— ⏳ 待做**：T6 Electron Host 层、T7 壳、T8 轻量包、T9 契约一致性/CI/体积门禁、T10 文档、T11 净机验收。
-> 🔶 **T9 已部分完成（2026-09）**：**前端 vitest 单测**（`frontend/vitest.config.ts`，5 文件 60 用例：传输选择/全部端点映射/
-> 错误归一化/401 横切/**两传输载荷一致性**/能力门禁三态/路由守卫矩阵/历史页删除状态机；命令 `pnpm test`），
-> 并在 CI 前端 job 加了 `pnpm test` 步骤。**其余 T9 项仍待做**：`rpc-cli.ps1`、`build-desktop.ps1`、体积门禁、CI 六 job、Release。
-> ✅ 关键前置（Go→引擎 stdio）由 **T4.5** 补齐、前端传输抽象与门禁由 **T5** 补齐，T6 可直接做 Host 层（preload 需按 T5 固化的
-> `window.omo.rpc` 契约实现：失败 reject 带 HTTP 语义 `code`）。
-> 仍需在 Host 侧补：**D9 第 5 级的友好错误对话框**、D5 的周期性健康检查与重启限速（3 次/10min）、Job Object 进程树回收。
+**M6-b T6（桌面 Host 层）—— ✅ 已完成（2026-09）**：
+- 位置 `desktop/`（独立 pnpm 工程，**T6 不含 electron 依赖**，随 T7 引入，见 `desktop/README.md`）；
+- `src/host/`：`paths`（D6 目录，按**目标**平台选 win32/posix 路径语义，故三平台可精确单测）、
+  `logger`（D7 按天命名 + 保留 7 天，目录不可用时退化为仅回显而不是崩）、
+  `lines`（JSON-Lines 分帧：跨 chunk 半行、超长行丢弃后恢复）、
+  `rpc`（id↔Promise、单次超时且可按调用覆盖、错误码=HTTP 语义、非法行/未知 id 只报协议错误不中断）、
+  `backend`（spawn、ping 健康检查、stderr 落盘 + 环形缓冲、**退出时立刻失效在途请求**、
+  就绪后崩溃才自动重启且**限速**、启动阶段失败**不**重启、优雅关闭→超时强杀进程树、
+  非 JSON 行按"协议污染"记日志并继续）、
+  `engine`（只探测 Go 看不到的随包资源布局，D9 1–4 级仍归 Go，避免两边漂移；第 5 级提供指引文案）、
+  `singleton`（文件锁，含陈旧锁回收；**同进程重复获取也拦**，防一个进程起两个后端写同一 SQLite）、
+  `host`（组装并注入 D6 环境变量，默认 `OMO_ENGINE_TRANSPORT=stdio`）；
+- **未做的部分（如实记录）**：D5 的**周期性健康检查（每 5s ping）**未实现（目前只在启动时 ping）；
+  进程树回收用 `taskkill /T /F`（Windows）而非 OS 级 **Job Object** 绑定；
+  D9 第 5 级的**对话框**属 T7（文案与判断已就绪）；`desktop/` 的 eslint/prettier 与 CI job 属 T9。
+
+**M6-b 剩余（T7–T11）—— ⏳ 待做**：T7 Electron 壳、T8 轻量包、T9 契约一致性/CI/体积门禁、T10 文档、T11 净机验收。
+> 🔶 **T9 已部分完成（2026-09）**：**前端 vitest 单测**（`frontend/vitest.config.ts`，5 文件 60 用例）+
+> **桌面 Host 层 vitest 单测**（`desktop/vitest.config.ts`，91 用例 + 1 个真实端到端集成测试），
+> 并在 CI 前端 job 加了 `pnpm test` 步骤。**其余 T9 项仍待做**：桌面 job/lint、`rpc-cli.ps1`、
+> `build-desktop.ps1`、体积门禁、CI 六 job、Release。
+> ✅ T7 的接线面已就绪：`Host.invoke(method, params)` / `Host.onEvent` / `Host.dispose`（见 `desktop/README.md`），
+> preload 需按 T5 固化的 `window.omo.rpc` 契约实现（失败 reject 带 HTTP 语义 `code`）。
 > 注意 stdio 传输下 **stdout 只能是协议流**（引擎与 Go 的日志都必须在 stderr，见 §6.15）。
 
 **M6（集成）**：部署（Go 静态托管 frontend/dist + CORS 配置）、示例数据与演示、端到端测试完善。
@@ -248,9 +278,11 @@ NN 代理 v2（材料参数入特征 / 逆向设计）。
 
 1. 读 `AGENTS.md` §6 守则 + 本文件 §6 环境坑
 2. 跑通现有验证：`cd engine && uv run --all-extras pytest -q`（**132 passed**）、`cd server && go test ./...`、
-   `cd frontend && pnpm lint && pnpm build`（**注意 §6.11/§6.22**：沙箱文件权限问题可能让 vite/esbuild 与 node_modules 写入失败）
-3. 若续做桌面版（M6-b）：**Go→引擎 stdio（T4.5）与前端传输抽象+门禁（T5）均已就绪**，下一步是 Electron Host 层（T6），
-   其 preload 须实现 T5 固化的 `window.omo.rpc(method, params)` 契约（失败 reject 带 HTTP 语义 `code`）；
+   `cd frontend && pnpm lint && pnpm test && pnpm build`、`cd desktop && pnpm type-check && pnpm test`
+   （**注意 §6.11/§6.22/§6.23**：沙箱文件权限与 `%TEMP%` 写入限制会让 vite/esbuild、node_modules 与 SQLite 失败）
+3. 若续做桌面版：**T1–T6 均已就绪**，下一步是 **T7 Electron 壳**（窗口 + `app://` 协议 + 菜单 + preload + electron-builder）；
+   Host 层接线面见 `desktop/README.md`（`Host.invoke` / `Host.onEvent` / `Host.dispose`），
+   preload 须实现 T5 固化的 `window.omo.rpc(method, params)` 契约（失败 reject 带 HTTP 语义 `code`）；
    手工联调桌面链路（无端口）：`OMO_AUTH_MODE=none OMO_ENGINE_TRANSPORT=stdio OMO_ENGINE_CMD='python -m omo.rpc' ./omopredict --stdio`，
    或用 `OMO_ENGINE_CMD` 指向 `engine/.venv/Scripts/python.exe -m omo.rpc`；
    RPC 契约见 `docs/api/rpc.md`；若续做 M5 剩余，先 `uv run omo-cli optimize ...` 冒烟再接 API/前端

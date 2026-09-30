@@ -20,6 +20,7 @@
 | 数据科学层 | Python（numpy/scipy/torch） | `engine/` | TMM 光学、方阻、屏蔽、文献对标、NN 代理、目标反推 |
 | 中间层 | Go（GORM） | `server/` | 用户/JWT、SQLite/MySQL/PostgreSQL、任务编排（含单用户模式与 stdio JSON-RPC） |
 | 前端 | Vue 3 + TypeScript | `frontend/` | 参数设计、目标反推、结果图表、任务历史 |
+| 桌面壳 | Electron + TypeScript | `desktop/` | 本地单用户形态：拉起/守护 Go 中间层与引擎（Host 层已完成，Electron 壳待做） |
 
 ## 功能状态（里程碑）
 
@@ -37,7 +38,9 @@
   桌面形态**全程不监听端口**（已实测），HTTP/stdio 载荷逐字段一致
 - ✅ T5 **前端传输抽象 + 能力门禁**：`window.omo` 存在则走 Electron IPC、否则 HTTP（载荷一致）；
   启动拉 `meta` 后按 `auth_required` 决定是否要求登录（单用户模式顶栏显示「本地模式」）；历史页支持删除
-- ⏳ M5 剩余（报告导出、高级寻优、NN 代理加速）/ M6 剩余（Electron 桌面包 T6–T11）
+- ✅ T6 **桌面 Host 层**（`desktop/`）：数据目录/日志轮转/单实例锁/引擎来源探测/Go 子进程守护
+  （崩溃即在途请求失败、限速重启、超时回收进程树）+ stdio JSON-RPC 客户端；91 单测 + 真实端到端集成测试
+- ⏳ M5 剩余（报告导出、高级寻优、NN 代理加速）/ M6 剩余（Electron 桌面包 T7–T11）
 
 ## 快速开始
 
@@ -60,12 +63,13 @@ cd server && OMO_AUTH_MODE=none OMO_ENGINE_TRANSPORT=stdio OMO_ENGINE_CMD='pytho
 cd frontend && pnpm install && pnpm dev
 
 # 测试
-cd engine && uv run pytest              # Python 全量测试
-cd server && go test ./...              # Go 全量测试
-cd frontend && pnpm lint && pnpm build  # 前端检查与构建
+cd engine && uv run pytest                        # Python 全量测试
+cd server && go test ./...                        # Go 全量测试
+cd frontend && pnpm lint && pnpm test && pnpm build   # 前端 lint + 单测 + 构建
+cd desktop && pnpm type-check && pnpm test        # 桌面 Host 层（含真子进程用例）
 ```
 
-详细启动/配置/接口见文档索引。
+详细启动/配置/接口见文档索引。桌面壳（Electron）当前只完成 Host 层，窗口/打包见 `docs/desktop.md` 的 T7。
 
 ## 局限性与适用范围（Limitations）
 
@@ -142,4 +146,4 @@ cd frontend && pnpm lint && pnpm build  # 前端检查与构建
 - **文献对标与校准**：`docs/benchmarks/`（README + calibration）
 - **API 契约**：`docs/api/`（rest = 对外 REST，engine = Go→Python 契约，rpc = 桌面 stdio JSON-RPC）
 - **桌面版设计**：`docs/desktop.md`
-- **各层**：`engine/README.md`、`server/README.md`、`frontend/README.md`
+- **各层**：`engine/README.md`、`server/README.md`、`frontend/README.md`、`desktop/README.md`
