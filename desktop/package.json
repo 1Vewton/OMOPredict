@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "packageManager": "pnpm@11.7.0",
-  "description": "OMOPredict 桌面壳（Electron）：Host 层拉起并守护 Go 中间层（docs/desktop.md T6）",
+  "description": "OMOPredict 桌面壳（Electron）：Host 层拉起并守护 Go 中间层与引擎（docs/desktop.md T6/T7）",
+  "main": "dist/main.js",
   "scripts": {
     "type-check": "tsc --noEmit",
     "test": "vitest run",
@@ -12,7 +13,29 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "electron": "^44.4.5",
     "typescript": "~5.8.3",
     "vitest": "^5.0.2"
+  },
+  "//build": "electron-builder 配置（docs/desktop.md D4/D9）。真正的打包脚本 build-desktop.ps1 / build-lite.ps1 与体积门禁属 T8/T9；此处先固化布局契约：壳资源里放渲染产物 dist/ 与随包引擎 engine/，后端可执行文件放资源根。",
+  "build": {
+    "appId": "com.omopredict.desktop",
+    "productName": "OMOPredict",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": ["dist/**/*", "package.json"],
+    "extraResources": [
+      { "from": "../frontend/dist", "to": "dist" },
+      { "from": "release-bin/omopredict-server.exe", "to": "omopredict-server.exe" }
+    ],
+    "win": {
+      "target": ["nsis", "zip"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }
