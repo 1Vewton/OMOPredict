@@ -128,3 +128,63 @@ jobs:
 
       - name: Test (vitest)
         run: pnpm test
+
+  # 打包脚本（T8）：脚本本身也要有 CI 覆盖，否则它们只会在发版当天第一次运行。
+  # 这里用"桩壳目录"替代 electron-builder 的产物，从而在不下载 Electron 二进制的前提下
+  # 跑通 build-lite 的完整路径（暂存 → 体积门禁 → 压缩），并验证两条失败路径。
+  packaging:
+    name: Packaging scripts (lightweight package)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Build renderer
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Stand-in shell tree
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path packaging/stand-in-shell/resources | Out-Null
+          Set-Content -LiteralPath packaging/stand-in-shell/OMOPredict.exe -Value 'stand-in for the electron shell' -Encoding ASCII
+
+      # 完整路径：Go 构建 → 暂存 → 体积门禁 → 压缩（退出码 0）
+      - name: Build lightweight package
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File ./scripts/build-lite.ps1 -AllowMissingShell -SkipFrontendBuild -ShellDir packaging/stand-in-shell
+          if ($LASTEXITCODE -ne 0) { throw "build-lite.ps1 failed with exit code $LASTEXITCODE" }
+
+      # 体积门禁必须真的会拦（否则门禁形同虚设）
+      - name: Size gate must trip when the limit is lowered
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File ./scripts/build-lite.ps1 -AllowMissingShell -SkipFrontendBuild -SkipGoBuild -ShellDir packaging/stand-in-shell -LiteLimitMB 1
+          if ($LASTEXITCODE -ne 1) { throw "expected the size gate to exit 1, got $LASTEXITCODE" }
+
+      # T8 验收项"无 Python 错误路径"：没有可用引擎时必须退出 1 并给出可操作指引，
+      # 而不是抛一段 PowerShell 堆栈。CI 上（未安装引擎）正好就是这个状态。
+      - name: Engine error path must be actionable
+        shell: pwsh
+        run: |
+          $output = pwsh -NoProfile -File ./scripts/setup-engine.ps1 -SkipInstall 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 1) { throw "expected setup-engine.ps1 to exit 1 without an engine, got $LASTEXITCODE" }
+          if ($output -notmatch 'What to check') { throw "setup-engine.ps1 did not print the guidance block:`n$output" }
+
