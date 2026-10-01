@@ -19,6 +19,7 @@ import { Host } from './host'
 import type { HostPaths } from './paths'
 import { CHANNELS, makeRpcHandler, type RpcEnvelope } from '../shell/channels'
 import { createOmoApi, type IpcInvoker } from '../shell/preloadBridge'
+import { describeEngineFailure } from './engine'
 
 const execFileAsync = promisify(execFile)
 
@@ -214,5 +215,66 @@ suite('Host ↔ 真实后端（OMO_BACKEND_EXE 已设置）', () => {
       code: 404,
       message: 'task not found',
     })
+  }, 180_000)
+
+  /**
+   * T8 验收项"无 Python 错误路径"：轻量包用户没装 Python 时，应用必须给出**可操作的**
+   * 失败，而不是一直转圈或只报一个 exit code。
+   *
+   * 实测：Go 侧对引擎是**惰性拉起**，所以引擎命令不存在时后端仍能启动并回 ping，
+   * 真正的失败出现在跑任务时——因此这条用例必须真的建任务并轮询到底。
+   */
+  it('引擎不可用时任务给出可操作错误（T8：无 Python 错误路径）', async () => {
+    const badDir = makeWorkDir()
+    const badHost = await Host.start({
+      paths: {
+        dataDir: join(badDir, 'data'),
+        logsDir: join(badDir, 'data', 'logs'),
+        dbPath: join(badDir, 'data', 'omopredict.db'),
+        lockPath: join(badDir, 'data', 'instance.lock'),
+      },
+      backendCommand: backendExe as string,
+      backendArgs: ['--stdio'],
+      // 指向一个不存在的解释器：等价于"用户机器上没有 Python"
+      env: { OMO_ENGINE_CMD: '"C:\\nope\\python.exe" -m omo.rpc' },
+    })
+
+    try {
+      // 惰性拉起：后端本身是就绪的
+      expect(badHost.status).toBe('ready')
+
+      const created = await badHost.invoke<{ id: string; status: string }>('tasks.create', {
+        kind: 'simulate',
+        name: 'no-engine',
+        layers: [
+          { material: 'ITO', thickness_nm: 40 },
+          { material: 'Ag', thickness_nm: 10 },
+          { material: 'ITO', thickness_nm: 40 },
+        ],
+      })
+
+      const deadline = Date.now() + 45_000
+      let task: { status: string; error?: string } = { status: 'pending' }
+      while (Date.now() < deadline) {
+        task = await badHost.invoke('tasks.get', { id: created.id })
+        if (task.status === 'succeeded' || task.status === 'failed') break
+        await new Promise((r) => setTimeout(r, 400))
+      }
+
+      // 关键断言：必须落到 failed，且错误文本要指向真正的原因（而不是"未知错误"）
+      if (process.env.OMO_INTEGRATION_VERBOSE) {
+        console.log('[no-engine] task.error =', JSON.stringify(task.error))
+        console.log('[no-engine] stderr tail =', badHost.backendStderr.slice(-400))
+      }
+      expect(task.status, `任务停在 ${task.status}（错误：${task.error ?? '无'}）`).toBe('failed')
+      expect(task.error ?? '').toMatch(/engine|omo\.rpc|python|OMO_ENGINE_CMD/i)
+
+      // Host 侧还应能把它翻成面向用户的指引（T7 的对话框就用这段文案）
+      const guidance = describeEngineFailure(badHost.backendStderr)
+      expect(guidance.length).toBeGreaterThan(20)
+    } finally {
+      await badHost.dispose()
+      rmSync(badDir, { recursive: true, force: true })
+    }
   }, 180_000)
 })
