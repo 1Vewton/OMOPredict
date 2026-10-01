@@ -40,14 +40,25 @@ powershell -ExecutionPolicy Bypass -File scripts\build-lite.ps1 -AllowMissingShe
 
 ## 体积门禁
 
-`build-lite.ps1` 默认把**引擎源码目录**限制在 90MB、**轻量包**限制在 50MB（取自设计文档 §7），
-目的是拦住 torch/fastapi/matplotlib 这类可选依赖偷偷进包。
+`build-lite.ps1` 有三道门禁，各有明确分工：
 
-> ⚠️ **一处待决的设计矛盾（T8 实测）**：轻量包要装 Electron 壳，而 Electron 运行时本身
-> 约 110MB（压缩后）/ 250MB（解包），因此"轻量包 ≤50MB"在**内嵌 Electron 运行时**时不可能成立。
-> 实测（2026-09）应用侧载荷：Go 后端 26.4MB + 渲染产物 0.61MB + 引擎源码 0.48MB ≈ 暂存 27.5MB / 压缩 13.9MB。
-> 也就是说这个门禁要么**放宽**，要么轻量包**不带 Electron 运行时**——需在 T9/T11 前定夺。
-> 门禁默认仍然生效（宁可拦住，也不要让体积悄悄膨胀），可用 `-LiteLimitMB` 临时覆盖。
+| 门禁 | 默认上限 | 为什么是这个数 |
+|---|---|---|
+| **app payload** | **50MB** | 我们自己掌控的部分（Go 后端 + 渲染产物 + 引擎源码 + 脚本）。**这道才是防回归的主闸**：torch/fastapi/matplotlib 泄漏会让它直接爆掉（torch 单独就几百 MB）。实测 ~27.5MB |
+| **lite zip** | **150MB** | payload + Electron 运行时。Electron 自身压缩后约 110MB，是个我们控制不了的常量 |
+| 引擎源码目录 | 90MB | 拦住"把整个引擎环境打进包" |
+
+```powershell
+# 需要时按需覆盖（改动前请先想清楚是哪种情况）
+-... -PayloadLimitMB 80      # 渲染产物/后端确实长大了
+-... -PackageLimitMB 200     # 换了 Electron 版本，体积变了
+```
+
+> ✅ **已决（2026-09）：轻量包保留内嵌 Electron 运行时**，因此把原设计文档里的"轻量包 ≤50MB"
+> **放宽到 150MB**。原数字在"内嵌 Electron"前提下不可能成立（Electron 压缩后约 110MB / 解包约 250MB）。
+> 为了不丢掉"防可选依赖泄漏"的作用，同时新增了 **app payload ≤50MB** 这道紧门禁——
+> 它盯的正是我们会改坏的那部分（实测 27.5MB），而 Electron 那 ~110MB 常量不参与。
+> 实测应用侧载荷：Go 后端 26.4MB + 渲染产物 0.61MB + 引擎源码 0.48MB。
 
 ## CI
 

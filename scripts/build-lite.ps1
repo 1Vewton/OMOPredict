@@ -27,15 +27,16 @@ Exit codes
   2 = staging only: shell tree missing and -AllowMissingShell was passed (no zip produced)
 
 Size gates
-  Engine source dir <= 90 MB (catches torch/fastapi leaking in).
-  Lite package      <= 50 MB (default from docs/desktop.md section 7).
-
-  NOTE (open question, see docs/desktop.md section 7): the 50 MB figure cannot hold while the
-  package embeds the Electron runtime, which is ~110 MB compressed / ~250 MB unpacked on its own.
-  Measured 2026-09: the app payload alone is ~27.5 MB staged / ~14 MB zipped
-  (Go backend 26.4 MB + renderer 0.61 MB + engine source 0.48 MB). Either the gate is raised,
-  or the lightweight package must not carry the Electron runtime. Override with -LiteLimitMB
-  until that is decided; the gate stays enabled on purpose so this cannot be forgotten.
+  App payload       <= 50 MB  - Go backend + renderer + engine source + scripts. This is the
+                                tight guard: it is what WE control, and it is where torch /
+                                fastapi / matplotlib leakage shows up (torch alone is hundreds of MB).
+  Lite package zip  <= 150 MB - payload + the Electron runtime. Electron is ~110 MB compressed on
+                                its own, so the package figure is dominated by a constant we do not
+                                control. DECISION (2026-09): the lightweight package keeps the
+                                embedded Electron runtime, so this limit was raised from the
+                                original 50 MB. Measured: payload ~27.5 MB staged / ~14 MB zipped
+                                (Go backend 26.4 + renderer 0.61 + engine source 0.48).
+  Engine source dir <= 90 MB  - catches a bundled engine environment leaking in.
 
 NOTE: comments in this file are ASCII on purpose (docs/HANDOVER.md 6.19).
 #>
@@ -47,7 +48,8 @@ param(
     [switch] $SkipFrontendBuild,
     [switch] $SkipGoBuild,
     [switch] $NoZip,
-    [double] $LiteLimitMB = 50,
+    [double] $PayloadLimitMB = 50,
+    [double] $PackageLimitMB = 150,
     [double] $EngineLimitMB = 90
 )
 
@@ -72,14 +74,22 @@ function Get-DirectorySizeMB {
     return [math]::Round($sum / 1MB, 2)
 }
 
+function Get-FileSizeMB {
+    param([string] $Path)
+    # Get-Item, not Get-ChildItem -Recurse -File: the latter returns a single file TWICE under
+    # Windows PowerShell 5.1 (we once read a 26.4 MB binary as 52.8 MB that way).
+    if (-not (Test-Path -LiteralPath $Path)) { return 0 }
+    return [math]::Round((Get-Item -LiteralPath $Path).Length / 1MB, 2)
+}
+
 function Assert-SizeGate {
     param([string] $Label, [double] $ActualMB, [double] $LimitMB)
     Write-Host ("      {0}: {1} MB (limit {2} MB)" -f $Label, $ActualMB, $LimitMB)
     if ($ActualMB -gt $LimitMB) {
         $message = ("Size gate failed: {0} is {1} MB, over the {2} MB limit. " -f $Label, $ActualMB, $LimitMB) +
-            'This usually means an optional dependency (torch / fastapi / matplotlib) leaked into the package. ' +
-            'If the Electron shell itself dominates, see the SIZE GATES note at the top of this script ' +
-            '(the 50 MB lite gate cannot hold together with an embedded Electron runtime; needs a decision).'
+            'For the app payload / engine dir this usually means an optional dependency ' +
+            '(torch / fastapi / matplotlib) leaked in. Raise the limit only on purpose ' +
+            '(see the SIZE GATES note at the top of this script).'
         throw $message
     }
 }
@@ -181,15 +191,24 @@ else {
 }
 
 Write-Host '[4/5] size gates'
-Assert-SizeGate -Label 'engine source dir' -ActualMB (Get-DirectorySizeMB $engineDst) -LimitMB $EngineLimitMB
+# The payload is measured from its SOURCES (not by subtracting the shell from staging): it is the
+# part we control and the part that regresses when an optional dependency leaks in.
+$payloadMB = [math]::Round(
+    (Get-DirectorySizeMB $distDir) +
+    (Get-DirectorySizeMB $engineDst) +
+    (Get-FileSizeMB $backendExe) +
+    (Get-FileSizeMB (Join-Path $staging 'setup-engine.ps1')) +
+    (Get-FileSizeMB (Join-Path $staging 'README.txt')), 2)
 $stagingMB = Get-DirectorySizeMB $staging
-Assert-SizeGate -Label 'lite staging' -ActualMB $stagingMB -LimitMB $LiteLimitMB
+Write-Host ("      staging total (incl. shell): {0} MB" -f $stagingMB)
+Assert-SizeGate -Label 'app payload' -ActualMB $payloadMB -LimitMB $PayloadLimitMB
+Assert-SizeGate -Label 'engine source dir' -ActualMB (Get-DirectorySizeMB $engineDst) -LimitMB $EngineLimitMB
 
 Write-Host '[5/5] package'
 if (-not $hasShell -or $NoZip) {
     Write-Host "      zip skipped (shell present: $hasShell, -NoZip: $([bool]$NoZip))"
     Write-Host ''
-    Write-Host ("Summary: staging at {0} ({1} MB) - NOT a runnable package yet." -f $staging, $stagingMB)
+    Write-Host ("Summary: staging at {0} (payload {1} MB, total {2} MB) - NOT a runnable package yet." -f $staging, $payloadMB, $stagingMB)
     if (-not $hasShell) { exit 2 }
     exit 0
 }
@@ -197,8 +216,8 @@ if (-not $hasShell -or $NoZip) {
 if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
 Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $zipPath -CompressionLevel Optimal
 $zipMB = [math]::Round((Get-Item -LiteralPath $zipPath).Length / 1MB, 2)
-Assert-SizeGate -Label 'lite zip' -ActualMB $zipMB -LimitMB $LiteLimitMB
+Assert-SizeGate -Label 'lite zip' -ActualMB $zipMB -LimitMB $PackageLimitMB
 
 Write-Host ''
-Write-Host ("Done: {0} ({1} MB)" -f $zipPath, $zipMB)
+Write-Host ("Done: {0} ({1} MB; payload {2} MB)" -f $zipPath, $zipMB, $payloadMB)
 exit 0

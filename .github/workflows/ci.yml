@@ -176,7 +176,7 @@ jobs:
       - name: Size gate must trip when the limit is lowered
         shell: pwsh
         run: |
-          pwsh -NoProfile -File ./scripts/build-lite.ps1 -AllowMissingShell -SkipFrontendBuild -SkipGoBuild -ShellDir packaging/stand-in-shell -LiteLimitMB 1
+          pwsh -NoProfile -File ./scripts/build-lite.ps1 -AllowMissingShell -SkipFrontendBuild -SkipGoBuild -ShellDir packaging/stand-in-shell -PayloadLimitMB 1
           if ($LASTEXITCODE -ne 1) { throw "expected the size gate to exit 1, got $LASTEXITCODE" }
 
       # T8 验收项"无 Python 错误路径"：没有可用引擎时必须退出 1 并给出可操作指引，
