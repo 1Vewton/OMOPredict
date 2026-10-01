@@ -61,8 +61,8 @@ Web 形态（现行默认）
 > 全程**不监听任何端口**（已实测满足 docs/desktop.md §10.6）。
 > 仍未做：**T9–T11**（`rpc-cli.ps1`/`build-desktop.ps1`/CI 六 job/Release、文档收尾、**净机验收**——
 > 其中"壳真的能启动并渲染"必须由 T11 在装上 Electron 二进制的机器上验证）。
-> ⚠️ 另有一处**待决的设计矛盾**：轻量包内嵌 Electron 运行时则"≤50MB"不可能成立（详见
-> `docs/desktop.md` §7），需在 T9/T11 前定夺。
+> ✅ **体积门禁已决（2026-09）**：轻量包保留内嵌 Electron 运行时，整包上限由 50MB **放宽到 150MB**，
+> 并新增 **app payload ≤50MB** 紧门禁负责防可选依赖泄漏（详见 `docs/desktop.md` §7）。
 
 ---
 
@@ -212,7 +212,8 @@ OMOPredict/
 > API 契约见 `docs/api/`（rest / engine / rpc）。
 >
 > ⚠️ **"壳真的能启动并渲染"仍未验证**：本环境装不了 Electron 二进制，属 **T11 净机验收**。
-> ⚠️ **一处待决设计矛盾**：内嵌 Electron 时轻量包"≤50MB"不成立（`docs/desktop.md` §7）。
+> ✅ **体积门禁已决（2026-09）**：轻量包保留内嵌 Electron，整包上限由 50MB **放宽到 150MB**，
+> 并新增 **app payload ≤50MB** 紧门禁负责防可选依赖泄漏（详见 `docs/desktop.md` §7）。
 > **下一步 T9**：`rpc-cli.ps1`、`build-desktop.ps1`（含 PyInstaller 引擎）、CI 六 job 与 Release；
 > 随后 T10 文档收尾、T11 净机验收。
 

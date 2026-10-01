@@ -36,7 +36,7 @@ OMO（氧化物/金属/氧化物）纳米多层薄膜仿真设计软件：三层
 
 | **M6-b T7** | ✅ | **Electron 壳**：`src/main.ts`（主进程接线：单实例锁 + 聚焦已有窗口、`app://` 协议、菜单、IPC、`will-quit` 回收后端）、`src/preload.ts`（contextBridge **白名单**）、`src/shell/`（与 Electron 解耦的壳逻辑：`appProtocol` app:// 解析 + 目录穿越防护 + CSP/安全头、`channels` IPC 通道与**结果信封**（避免 Electron 压掉 Error 的 `code`）、`preloadBridge`、`menu`、`windowOptions` 安全基线、`backendCommand` 打包/开发期定位、`diagnostics` 脱敏）、`package.json` 的 electron-builder 配置 | `tsc --noEmit` 对**真实 Electron 类型**干净（校验 app/BrowserWindow/protocol/Menu/ipcMain 全部用法）；桌面测试 **12 文件 150 用例**（app:// 穿越 5 变体、CSP 无网络、IPC 信封跨进程、菜单/窗口安全基线、诊断脱敏）；集成测试新增**渲染进程可见链路**（`window.omo.rpc` → 信封 → 真实 Go → 真实引擎，含跨进程 404）——**但壳未实际启动**（无 Electron 二进制，属 T11） |
 
-| **M6-c T8** | ✅ | **轻量包**：`scripts/setup-engine.ps1`（uv → pip 两条安装路径 + 发 ping 验证；**任何失败都落进统一的"可操作指引"块**）、`scripts/build-lite.ps1`（渲染产物 + Go 后端 + 引擎源码 + setup 脚本 + README → **体积门禁** → zip；`-AllowMissingShell` 无壳时只暂存并**退出 2**）、`desktop/lite/README.txt` 模板、`scripts/README.md`；CI 加 `packaging` job | 两脚本**实跑**：setup-engine 四条路径（指定解释器 / uv 分支 / 目录非法 / 解释器不存在）全过；build-lite 暂存（退出 2）/完整出包（退出 0，13.9MB）/门禁拦截（退出 1）；集成测试新增**引擎不可用**用例（真实 Go + 不存在解释器 → 任务 `failed`，错误点名失败的命令）。⚠️ 体积门禁发现**待决矛盾**：内嵌 Electron 时"轻量包 ≤50MB"不成立（见 §7 T8 块与 `docs/desktop.md` §7） |
+| **M6-c T8** | ✅ | **轻量包**：`scripts/setup-engine.ps1`（uv → pip 两条安装路径 + 发 ping 验证；**任何失败都落进统一的"可操作指引"块**）、`scripts/build-lite.ps1`（渲染产物 + Go 后端 + 引擎源码 + setup 脚本 + README → **体积门禁** → zip；`-AllowMissingShell` 无壳时只暂存并**退出 2**）、`desktop/lite/README.txt` 模板、`scripts/README.md`；CI 加 `packaging` job | 两脚本**实跑**：setup-engine 四条路径（指定解释器 / uv 分支 / 目录非法 / 解释器不存在）全过；build-lite 暂存（退出 2）/完整出包（退出 0，13.9MB）/门禁拦截（退出 1）；集成测试新增**引擎不可用**用例（真实 Go + 不存在解释器 → 任务 `failed`，错误点名失败的命令）。**体积门禁已决**：轻量包保留 Electron → 整包上限由 50MB 放宽到 150MB，另加 **app payload ≤50MB** 紧门禁防依赖泄漏（见 §7 T8 块） |
 
 测试现状：Python **132 passed / ruff 0**（2026-09 文件权限修复后不再有 tmp_path 报错，见 §6.22；此前记录的"128 passed + 4 个 PermissionError"已过时）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流、单用户模式与 **12 个 stdio 引擎用例**）；前端 `pnpm lint` 0 告警 + `pnpm test`（**vitest：5 文件 60 用例**）+ `pnpm build`（`vue-tsc -b` + `vite build`）通过；桌面 `desktop/`：`pnpm type-check`（含真实 Electron 类型）+ `pnpm test`（**12 文件 150 用例**，
 另有 3 个需环境变量门控的真实端到端集成用例，已实跑通过）通过；`scripts/` 两个脚本本机实跑过（见 §7 T8 块）。
@@ -315,11 +315,11 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
 - **T8 验收项（应用层）已实测**：真实 Go 后端 + 不存在的解释器时，后端**仍能启动并发回 ping**
   （Go 对引擎是**惰性拉起**），失败出现在跑任务时——任务落 `failed`，错误为
   `engine: 启动 [C:\nope\python.exe -m omo.rpc]: fork/exec … cannot find the path specified.`，**可操作**。
-- ⚠️ **待决的设计矛盾（重要）**：轻量包要装 Electron 壳，而 Electron 运行时自身约 110MB（压缩）/250MB（解包），
-  所以设计文档 §7 的"轻量包 ≤50MB"在**内嵌 Electron 时不可能成立**。实测应用侧载荷：
-  Go 后端 26.4MB + 渲染产物 0.61MB + 引擎源码 0.48MB ≈ 暂存 27.5MB / 压缩 13.9MB。
-  → 二选一：**放宽该上限**，或**轻量包不带 Electron 运行时**。需在 T9/T11 之前定夺；
-  `build-lite.ps1` 暂时保留门禁（`-LiteLimitMB` 可覆盖）。
+- ✅ **体积门禁（2026-09 已决）**：轻量包**保留内嵌 Electron 运行时**，因此上限由原设计的 50MB
+  **放宽到 150MB**（Electron 自身压缩后约 110MB，该数字不可能压到 50MB 以下）。为不丢掉"防可选依赖泄漏"
+  的作用，同时新增一道**紧门禁 `app payload ≤50MB`**（Go 后端 + 渲染产物 + 引擎源码 + 脚本，实测 27.5MB）
+  ——torch 泄漏会让它直接爆掉。三道门禁：payload 50MB（紧）+ 整包 150MB（宽，含 Electron 常量）+
+  引擎目录 90MB。可用 `-PayloadLimitMB` / `-PackageLimitMB` / `-EngineLimitMB` 覆盖。
 
 **M6-c/d 剩余（T9–T11）—— ⏳ 待做**：T9 `rpc-cli.ps1`/`build-desktop.ps1`（含 PyInstaller 引擎）/CI 六 job 与 Release、T10 文档收尾、T11 净机验收。
 > 🔶 **T9 已部分完成（2026-09）**：**后端契约测试**（`internal/rpc/contract_test.go`，HTTP↔RPC 逐字段）+
@@ -346,7 +346,8 @@ NN 代理 v2（材料参数入特征 / 逆向设计）。
    （**注意 §6.11/§6.22/§6.23**：沙箱文件权限与 `%TEMP%` 写入限制会让 vite/esbuild、node_modules 与 SQLite 失败）
 3. 若续做桌面版：**T1–T8 均已就绪**，下一步 **T9（`rpc-cli.ps1`、`build-desktop.ps1`、CI 六 job、Release）**；
    装上 Electron 二进制后请**先做 T11 的运行期验收**（壳启动/渲染/CSP，见下）；
-   动手前先定夺 **§7 T8 块里的体积门禁矛盾**（内嵌 Electron 时轻量包 ≤50MB 不成立）；
+   动手前注意：体积门禁**已决**（轻量包保留 Electron → 整包上限放宽到 150MB，另加 payload 50MB 紧门禁，
+   见 §7 T8 块），无需再定夺；
    Host 与壳的接线面见 `desktop/README.md`（`Host.invoke` / `Host.onEvent` / `Host.dispose`，
    以及 `src/shell/` 里已固化的 `window.omo` 契约）；打包脚本见 `scripts/README.md`；
    手工联调桌面链路（无端口）：`OMO_AUTH_MODE=none OMO_ENGINE_TRANSPORT=stdio OMO_ENGINE_CMD='python -m omo.rpc' ./omopredict --stdio`，
