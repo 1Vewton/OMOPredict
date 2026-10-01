@@ -296,6 +296,11 @@ OMOPredict/
 
 - 缓存：pnpm store、Go build cache、uv cache、Electron 二进制（`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`）。
 - **体积门禁**：完整包 ≤300MB、引擎目录 ≤90MB、轻量包 ≤50MB（超出即失败，防 torch/fastapi 回归）。
+  - ⚠️ **T8 实测发现一处矛盾（待决）**：轻量包若内嵌 Electron 壳，则"≤50MB"不成立——Electron 运行时
+    自身约 **110MB（压缩）/ 250MB（解包）**。实测应用侧载荷为 Go 后端 26.4MB + 渲染产物 0.61MB +
+    引擎源码 0.48MB ≈ **暂存 27.5MB / 压缩 13.9MB**。因此二选一：**放宽轻量包上限**，
+    或**轻量包不带 Electron 运行时**（例如只发"引擎 + 配置"的补充包）。需在 T9/T11 之前定夺。
+    `build-lite.ps1` 目前保留该门禁（可用 `-LiteLimitMB` 覆盖），宁可拦住也不让体积悄悄膨胀。
 - **契约一致性测试**（必做）：同一组用例分别经 HTTP 与 RPC 执行，断言响应 JSON 深度相等；
   前端 `client.ts` 用同一套假传输做单测。
   - ✅ **后端部分已落地**：`internal/rpc/contract_test.go`（HTTP↔RPC 载荷逐字段比对）；
@@ -404,8 +409,8 @@ OMOPredict/
 | T5 前端传输抽象 + 门禁 | ✅ 完成 | `api/transport.ts`（`Transport` 接口 + 方法→端点映射 + `ipcTransport`/`httpTransport` + `activeTransport()`：检测 `window.omo` 选 IPC，否则 HTTP，可用 `setTransport()` 覆盖）+ `api/client.ts`（统一入口，401 → 清凭证 + 广播 `omo:unauthorized`）+ `api/token.ts`（凭证，单用户模式不参与）+ `api/meta.ts`；**能力门禁**：`main.ts` 挂载前 `bootstrap()` 拉 `meta`，auth store 增 `authRequired`/`isLocalMode`/`isAuthenticated`，路由守卫无认证模式放行全部页面并把 `/login` 重定向到 `/design`，顶栏显示「本地模式」标记并隐藏用户名/退出，`meta` 失败按"需要认证"兜底；历史页新增删除（两段式内联确认） |
 | T6 Host 层 | ✅ 完成 | `desktop/src/host/`（**Electron 无关的纯 Node 模块**）：`paths`（D6 数据/日志目录，按目标平台选路径语义）+ `logger`（D7 按天日志、保留 7 天、目录不可用时退化为仅回显）+ `lines`（JSON-Lines 分帧：跨 chunk 半行、超长行丢弃）+ `rpc`（id↔Promise、单次超时、错误码=HTTP 语义、非法行/未知 id 只上报协议错误）+ `backend`（spawn、ping 健康检查、stderr 落盘、**退出时立刻失效在途请求**、限速重启、优雅关闭+超时强杀进程树、stdout 污染容忍）+ `engine`（只做 Go 看不到的引擎来源探测 + D9 第 5 级指引）+ `singleton`（文件锁）+ `host`（组装并注入 D6 环境变量，默认 `OMO_ENGINE_TRANSPORT=stdio`） |
 | T7 Electron 壳 | ✅ 完成（**未做运行期启动验证**，见下） | `src/main.ts`（主进程接线：单实例锁 + 聚焦已有窗口、`app://` 协议、菜单、IPC、优雅退出回收后端）、`src/preload.ts`（contextBridge 白名单，仅暴露 `rpc`/`openLogDir`/`openDataDir`）、`src/shell/`（与 Electron 解耦的壳逻辑：`appProtocol` app:// 解析 + 目录穿越防护 + CSP/安全头、`channels` IPC 通道与**结果信封**（避免 Electron 压掉 Error 的 `code`）、`preloadBridge`、`menu`、`windowOptions` 安全基线、`backendCommand` 打包/开发期定位、`diagnostics` 脱敏诊断）、`package.json` 的 electron-builder 配置（nsis + zip，extraResources：`dist/` + `omopredict-server.exe`） | `tsc --noEmit` **对真实 Electron 类型**干净（校验了 app/BrowserWindow/protocol/Menu/ipcMain 的全部用法）；**150 单测**（12 文件；含 app:// 目录穿越 5 种编码变体、CSP 无网络、IPC 信封跨进程边界、菜单/窗口安全基线、诊断脱敏）；集成测试新增**渲染进程可见链路**（`window.omo.rpc` → IPC 信封 → 真实 Go → 真实引擎，含 404 跨界） |
-| T8 轻量包 | ⏳ | 待做 |
-| T9 契约一致性 + 脚本 + CI | 🔶 部分完成 | ✅ 前端 vitest 单测（5 文件 60 用例：含**两传输载荷一致性**）已落地、CI 前端 job 已加 `pnpm test`；⏳ 其余待做：`rpc-cli.ps1` / `build-desktop.ps1` / 体积门禁 / CI 六 job / Release |
+| T8 轻量包 | ✅ 完成（**体积门禁有一处待决矛盾**，见 §7） | `scripts/setup-engine.ps1`（uv → pip 两条安装路径 + 发 ping 验证；失败一律给可操作指引）、`scripts/build-lite.ps1`（渲染产物 + Go 后端 + **引擎源码** + setup 脚本 + README → 体积门禁 → zip；`-AllowMissingShell` 支持无壳时只做暂存）、`desktop/lite/README.txt` 模板、`scripts/README.md` | 两个脚本**已实跑**：setup-engine 的成功/失败/自动发现/uv 四条路径、build-lite 的暂存（退出 2）/完整出包（退出 0）/门禁拦截（退出 1）；`desktop/` 集成测试新增**引擎不可用**用例（真实 Go 后端 + 不存在的解释器 → 任务落 `failed`，错误为 `engine: 启动 [...]: fork/exec ... cannot find the path specified`）；CI 新增 `packaging` job |
+| T9 契约一致性 + 脚本 + CI | 🔶 部分完成 | ✅ 已落地：后端 `internal/rpc/contract_test.go`（HTTP↔RPC 逐字段）、前端 vitest（5 文件 60 用例，含**两传输载荷一致性**）、桌面 vitest（150 用例 + 3 个门控集成用例）、**体积门禁**（`build-lite.ps1`，含 CI 反向验证）；⏳ 其余待做：`rpc-cli.ps1` / `build-desktop.ps1`（含 PyInstaller 引擎）/ `start-local.ps1` / CI 六 job 补齐（Release 上传、SHA256 清单）/ Release |
 | T10 文档 | ⏳ | 待做（T1/T3 的契约已先行写入 `docs/api/rest.md` 与 `docs/api/rpc.md`；T4.5 的 stdio 变体见 `docs/api/engine.md`） |
 | T11 净机验收 | ⏳ | 待做 |
 
@@ -438,7 +443,6 @@ OMOPredict/
 > → 真实 Python 引擎 → `tasks.create` → 轮询 `succeeded` → **Rs≈3.9708 / T@550nm≈0.9745 / SE@10GHz≈33.70**
 > → `tasks.delete` → **后端进程无 LISTENING 端口**（§10.6）→ 退出 `code=0 expected=true`，无残留。
 > ⚠️ 仍未做：Host 的 lint/format 配置与 CI job（T9）；Electron 壳本身（T7）。
-
 > ✅ **T7 验证（2026-09，实测）**：`tsc --noEmit` 对**真实 Electron 类型**（electron 44.4.5）干净——
 > 这把主进程/preload 里 `app`/`BrowserWindow`/`protocol.handle`/`Menu`/`ipcMain`/`dialog`
 > 的用法都静态校验了一遍；`desktop/` 测试增至 **12 文件 150 用例**（+1 集成默认跳过）：
@@ -455,9 +459,25 @@ OMOPredict/
 >
 > ⚠️ **未做运行期启动验证（如实记录）**：本机无法下载 Electron 二进制（约 100MB+，本环境拉包速率极低），
 > 因此 `main.ts` 的**窗口真的能打开、`app://` 页面真的能渲染、CSP 是否误伤**这几件事**没有实跑过**——
-> 按 §10 的清单，这些属 **T11 净机验收**。同理，electron-builder 的 `build` 配置只是**布局契约**，
-> 真正的打包脚本与体积门禁属 T8/T9。
+> 按 §10 的清单，这些属 **T11 净机验收**。同理，electron-builder 的 `build` 配置只是**布局契约**。
+
+> ✅ **T8 验证（2026-09，实测）**：两个脚本都**实际运行过**，不是"写完就算"：
+> - `setup-engine.ps1` 四条路径全过：指定解释器成功（`engine ready: ping ok`，退出 0）、
+>   **`uv` 分支**成功（`uv run --frozen --project … python -m omo.rpc` 回 ping）、
+>   引擎目录非法（退出 1，报 `Not an engine project (pyproject.toml missing)`）、
+>   解释器不存在（退出 1，且打印 `What to check` 指引而非 PowerShell 堆栈）；
+>   自动发现（不给 `-EngineDir`）也能在仓库布局下找到 `engine/`。
+> - `build-lite.ps1`：无壳时暂存成功并按设计**退出 2**（"未产出可运行包"，不假装成功）；
+>   用桩壳目录跑通完整路径（暂存 → 门禁 → zip，退出 0，产物 `OMOPredict-lite-0.1.0-win-x64.zip` 13.9MB）；
+>   把上限压到 5MB 时门禁**确实拦截**（退出 1）。
+> - **T8 验收项"无 Python 错误路径"（应用层）**：集成测试新增用例——真实 Go 后端 + 不存在的解释器，
+>   后端仍能启动（引擎是惰性拉起），任务落 `failed` 且错误为
+>   `engine: 启动 [C:\nope\python.exe -m omo.rpc]: fork/exec … The system cannot find the path specified.`
+>   ——**可操作**（点名了失败的命令），Host 还能再用 `describeEngineFailure` 翻成对话框文案。
+> - CI 新增 `packaging` job（ubuntu + `pwsh`）：桩壳跑通打包全路径、验证门禁会拦、验证无引擎时的指引文案。
+> - ⚠️ **未做**：真实 electron-builder 产物（无 Electron 二进制）与**完整包**的 PyInstaller 引擎（T9）；
+>   轻量包的用户侧净机流程（T11）。体积门禁的 ≤50MB 矛盾见 §7 的 ⚠️ 说明。
 
 ---
 
-*本设计为第 3 稿评审件；已按 §11 拆解实施（T1–T7 ✅、T9 部分，进度见 §13），后续同步更新 AGENTS.md 里程碑与 HANDOVER。*
+*本设计为第 3 稿评审件；已按 §11 拆解实施（T1–T8 ✅、T9 部分，进度见 §13），后续同步更新 AGENTS.md 里程碑与 HANDOVER。*

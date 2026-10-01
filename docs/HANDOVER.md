@@ -36,8 +36,10 @@ OMO（氧化物/金属/氧化物）纳米多层薄膜仿真设计软件：三层
 
 | **M6-b T7** | ✅ | **Electron 壳**：`src/main.ts`（主进程接线：单实例锁 + 聚焦已有窗口、`app://` 协议、菜单、IPC、`will-quit` 回收后端）、`src/preload.ts`（contextBridge **白名单**）、`src/shell/`（与 Electron 解耦的壳逻辑：`appProtocol` app:// 解析 + 目录穿越防护 + CSP/安全头、`channels` IPC 通道与**结果信封**（避免 Electron 压掉 Error 的 `code`）、`preloadBridge`、`menu`、`windowOptions` 安全基线、`backendCommand` 打包/开发期定位、`diagnostics` 脱敏）、`package.json` 的 electron-builder 配置 | `tsc --noEmit` 对**真实 Electron 类型**干净（校验 app/BrowserWindow/protocol/Menu/ipcMain 全部用法）；桌面测试 **12 文件 150 用例**（app:// 穿越 5 变体、CSP 无网络、IPC 信封跨进程、菜单/窗口安全基线、诊断脱敏）；集成测试新增**渲染进程可见链路**（`window.omo.rpc` → 信封 → 真实 Go → 真实引擎，含跨进程 404）——**但壳未实际启动**（无 Electron 二进制，属 T11） |
 
+| **M6-c T8** | ✅ | **轻量包**：`scripts/setup-engine.ps1`（uv → pip 两条安装路径 + 发 ping 验证；**任何失败都落进统一的"可操作指引"块**）、`scripts/build-lite.ps1`（渲染产物 + Go 后端 + 引擎源码 + setup 脚本 + README → **体积门禁** → zip；`-AllowMissingShell` 无壳时只暂存并**退出 2**）、`desktop/lite/README.txt` 模板、`scripts/README.md`；CI 加 `packaging` job | 两脚本**实跑**：setup-engine 四条路径（指定解释器 / uv 分支 / 目录非法 / 解释器不存在）全过；build-lite 暂存（退出 2）/完整出包（退出 0，13.9MB）/门禁拦截（退出 1）；集成测试新增**引擎不可用**用例（真实 Go + 不存在解释器 → 任务 `failed`，错误点名失败的命令）。⚠️ 体积门禁发现**待决矛盾**：内嵌 Electron 时"轻量包 ≤50MB"不成立（见 §7 T8 块与 `docs/desktop.md` §7） |
+
 测试现状：Python **132 passed / ruff 0**（2026-09 文件权限修复后不再有 tmp_path 报错，见 §6.22；此前记录的"128 passed + 4 个 PermissionError"已过时）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流、单用户模式与 **12 个 stdio 引擎用例**）；前端 `pnpm lint` 0 告警 + `pnpm test`（**vitest：5 文件 60 用例**）+ `pnpm build`（`vue-tsc -b` + `vite build`）通过；桌面 `desktop/`：`pnpm type-check`（含真实 Electron 类型）+ `pnpm test`（**12 文件 150 用例**，
-另有 2 个需环境变量门控的真实端到端集成用例，已实跑通过）通过。
+另有 3 个需环境变量门控的真实端到端集成用例，已实跑通过）通过；`scripts/` 两个脚本本机实跑过（见 §7 T8 块）。
 
 ## 3. 三层架构与启动
 
@@ -199,6 +201,21 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
     → 在受限环境里跑集成测试/冒烟时，把数据目录指到工作区内：
     `desktop` 的集成测试支持 `OMO_INTEGRATION_DIR=<工作区内目录>`；桌面应用自身默认用
     `%LOCALAPPDATA%\OMOPredict`（真实用户机器上可写，仅本沙箱受限）。
+24. **⚠️ PowerShell 5.1 读 UTF-8（无 BOM）会当 ANSI 解（T8 实测）**：`Get-Content -Raw` 读含中文的
+    `desktop/package.json` 时得到乱码，`ConvertFrom-Json` 直接抛 `ArgumentException`，而不是给出可读错误。
+    **凡读文本都显式 `-Encoding UTF8`**（写用 `Set-Content -Encoding UTF8`）。与 §6.19 同族：
+    本机 `pwsh` 实为 Windows PowerShell 5.1，而 5.1 的默认编码是老代码页。
+25. **⚠️ `Join-Path` 在 PS 5.1 只能给一个子路径（T8 实测）**：`Join-Path $a 'b' 'c'` 在 PS 7 上靠
+    `-AdditionalChildPath` 可用，在 5.1 上会报 `A positional parameter cannot be found that accepts argument 'c'`
+    ——而且**只在执行到那一行时才炸**（`setup-engine.ps1` 的候选路径分支就是这样：传 `-EngineDir` 一切正常，
+    走自动发现才暴露）。多段路径写成 `Join-Path $a 'b/c'`；顺带用正斜杠还能让脚本在 Linux/macOS 上跑
+    （CI 的 `packaging` job 就是这么跑的）。
+26. **⚠️ 脚本退出码要当契约用（T8）**：`build-lite.ps1` 用 **0 出包 / 1 失败 / 2 仅暂存** 三态，
+    避免"没有 Electron 壳却报告成功"。CI 用 `pwsh -NoProfile -File <script>`（**新进程**）调用，
+    这样 `$LASTEXITCODE` 才是脚本真值——同进程里 `./script.ps1` 遇到 `exit` 的行为容易误判。
+27. **⚠️ `Get-ChildItem -Recurse -File` 传单个文件会重复计数（T8 实测）**：想量一个文件的大小时
+    它会返回两次，得到 2× 的值（曾据此误判 Go 后端 26.4MB 为 52.8MB）。量文件用 `Get-Item`，
+    量目录才用 `Get-ChildItem -Recurse`；脚本里的体积门禁只作用于目录，因此不受影响。
 
 ## 7. 未完成事项与后续计划
 
@@ -287,13 +304,33 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
 - **preload 必须编译成 `.cjs`**：窗口启用了 `sandbox: true`，沙箱化 preload 只能是 CommonJS，
   而本包 `"type": "module"`，若叫 `preload.js` 会被当 ESM 加载失败（已在 main.ts 注明）。
 
-**M6-b 剩余（T8–T11）—— ⏳ 待做**：T8 轻量包、T9 打包脚本/体积门禁/CI/Release、T10 文档收尾、T11 净机验收。
-> 🔶 **T9 已部分完成（2026-09）**：**前端 vitest**（5 文件 60 用例）+ **桌面 vitest**（12 文件 150 用例 + 2 个真实端到端集成用例）
-> 已落地，CI 已有 **frontend / desktop 两个 job** 跑 `pnpm test`。**其余 T9 项仍待做**：桌面 lint、
-> `rpc-cli.ps1`、`build-desktop.ps1` / `build-lite.ps1`、体积门禁、Release。
+**M6-c T8（轻量包）—— ✅ 已完成（2026-09）**：
+- `scripts/setup-engine.ps1`：定位引擎工程（`-EngineDir` 或按 `../engine` → `../resources/engine` 自动发现）→
+  有 `uv` 走 `uv sync --frozen`，否则 `python -m pip install -e`（附镜像提示）→ **发一次 `ping` 验证**
+  （argv 按 D9 拼，与 Go 侧一致；显式给的解释器优先）。**所有失败都落进统一的 "What to check" 块**，
+  不会抛 PowerShell 堆栈——这条正是 T8 验收项"无 Python 错误路径"。
+- `scripts/build-lite.ps1`：渲染产物 + Go 后端 + **引擎源码**（只拷 `pyproject.toml`/`uv.lock`/`.python-version`/
+  `README.md`/`src`，排除 `.venv` 与 `__pycache__`）+ `setup-engine.ps1` + 由 `desktop/lite/README.txt` 生成的
+  `README.txt` → **体积门禁** → zip。退出码：0 出包 / 1 构建或门禁失败 / **2 仅暂存**（无壳时不假装成功）。
+- **T8 验收项（应用层）已实测**：真实 Go 后端 + 不存在的解释器时，后端**仍能启动并发回 ping**
+  （Go 对引擎是**惰性拉起**），失败出现在跑任务时——任务落 `failed`，错误为
+  `engine: 启动 [C:\nope\python.exe -m omo.rpc]: fork/exec … cannot find the path specified.`，**可操作**。
+- ⚠️ **待决的设计矛盾（重要）**：轻量包要装 Electron 壳，而 Electron 运行时自身约 110MB（压缩）/250MB（解包），
+  所以设计文档 §7 的"轻量包 ≤50MB"在**内嵌 Electron 时不可能成立**。实测应用侧载荷：
+  Go 后端 26.4MB + 渲染产物 0.61MB + 引擎源码 0.48MB ≈ 暂存 27.5MB / 压缩 13.9MB。
+  → 二选一：**放宽该上限**，或**轻量包不带 Electron 运行时**。需在 T9/T11 之前定夺；
+  `build-lite.ps1` 暂时保留门禁（`-LiteLimitMB` 可覆盖）。
+
+**M6-c/d 剩余（T9–T11）—— ⏳ 待做**：T9 `rpc-cli.ps1`/`build-desktop.ps1`（含 PyInstaller 引擎）/CI 六 job 与 Release、T10 文档收尾、T11 净机验收。
+> 🔶 **T9 已部分完成（2026-09）**：**后端契约测试**（`internal/rpc/contract_test.go`，HTTP↔RPC 逐字段）+
+> **前端 vitest**（5 文件 60 用例）+ **桌面 vitest**（12 文件 150 用例 + 3 个门控集成用例）+
+> **体积门禁**（`build-lite.ps1`，且 CI 反向验证"门禁真的会拦"）已落地；
+> CI 有 **engine / go / frontend / desktop / packaging 五个 job**。
+> **其余 T9 项仍待做**：桌面 lint、`rpc-cli.ps1`、`start-local.ps1`、`build-desktop.ps1`（完整包 + PyInstaller 引擎）、
+> Release 上传与 SHA256 清单。
 > ⚠️ **T11 必须验证的第一件事**：装上 Electron 二进制后**壳能否真的启动并渲染**
 > （窗口、`app://` 加载 `frontend/dist`、CSP 是否误伤 Vue/ECharts 的行内样式、IPC 是否通）。
-> 本环境装不了 Electron 二进制（约 100MB+，拉包速率过低），因此这三件事**一次都没跑过**。
+> 本环境装不了 Electron 二进制（约 100MB+，拉包速率过低），因此这几件事**一次都没跑过**。
 > 注意 stdio 传输下 **stdout 只能是协议流**（引擎与 Go 的日志都必须在 stderr，见 §6.15）。
 
 **M6（集成）**：部署（Go 静态托管 frontend/dist + CORS 配置）、示例数据与演示、端到端测试完善。
@@ -307,10 +344,11 @@ NN 代理 v2（材料参数入特征 / 逆向设计）。
 2. 跑通现有验证：`cd engine && uv run --all-extras pytest -q`（**132 passed**）、`cd server && go test ./...`、
    `cd frontend && pnpm lint && pnpm test && pnpm build`、`cd desktop && pnpm type-check && pnpm test`
    （**注意 §6.11/§6.22/§6.23**：沙箱文件权限与 `%TEMP%` 写入限制会让 vite/esbuild、node_modules 与 SQLite 失败）
-3. 若续做桌面版：**T1–T7 均已就绪**，下一步 **T8（轻量包）/ T9（打包脚本、体积门禁、CI）**；
+3. 若续做桌面版：**T1–T8 均已就绪**，下一步 **T9（`rpc-cli.ps1`、`build-desktop.ps1`、CI 六 job、Release）**；
    装上 Electron 二进制后请**先做 T11 的运行期验收**（壳启动/渲染/CSP，见下）；
+   动手前先定夺 **§7 T8 块里的体积门禁矛盾**（内嵌 Electron 时轻量包 ≤50MB 不成立）；
    Host 与壳的接线面见 `desktop/README.md`（`Host.invoke` / `Host.onEvent` / `Host.dispose`，
-   以及 `src/shell/` 里已固化的 `window.omo` 契约）；
+   以及 `src/shell/` 里已固化的 `window.omo` 契约）；打包脚本见 `scripts/README.md`；
    手工联调桌面链路（无端口）：`OMO_AUTH_MODE=none OMO_ENGINE_TRANSPORT=stdio OMO_ENGINE_CMD='python -m omo.rpc' ./omopredict --stdio`，
    或用 `OMO_ENGINE_CMD` 指向 `engine/.venv/Scripts/python.exe -m omo.rpc`；
    RPC 契约见 `docs/api/rpc.md`；若续做 M5 剩余，先 `uv run omo-cli optimize ...` 冒烟再接 API/前端
