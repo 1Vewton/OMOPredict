@@ -1,6 +1,9 @@
 # 依赖与构建产物
 node_modules/
 dist/
+# 打包产物与暂存目录（scripts/build-lite.ps1 / build-desktop.ps1 的输出）
+release/
+release-bin/
 
 # 集成测试的临时数据目录（OMO_INTEGRATION_DIR 常被指到这里）
 .itest/
