@@ -126,6 +126,10 @@ jobs:
       - name: Type-check
         run: pnpm type-check
 
+      # 编译产物必须真的能产出：main 走 ESM、preload 走 CJS（沙箱化 preload 只能 CJS）
+      - name: Build (main = ESM, preload = CJS)
+        run: pnpm build
+
       - name: Test (vitest)
         run: pnpm test
 
@@ -187,4 +191,19 @@ jobs:
           $output = pwsh -NoProfile -File ./scripts/setup-engine.ps1 -SkipInstall 2>&1 | Out-String
           if ($LASTEXITCODE -ne 1) { throw "expected setup-engine.ps1 to exit 1 without an engine, got $LASTEXITCODE" }
           if ($output -notmatch 'What to check') { throw "setup-engine.ps1 did not print the guidance block:`n$output" }
+
+      # 调试 CLI 必须真的能跑通协议（上一步已产出 desktop/release/omopredict-server.exe）
+      - name: rpc-cli smoke (ping over stdio)
+        shell: pwsh
+        run: |
+          $output = pwsh -NoProfile -File ./scripts/rpc-cli.ps1 -Exe ./desktop/release/omopredict-server.exe -DataDir ./ci-data -Method ping 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0) { throw "rpc-cli.ps1 exited $LASTEXITCODE`n$output" }
+          if ($output -notmatch '"status"\s*:\s*"ok"') { throw "rpc-cli.ps1 got no ping response:`n$output" }
+
+      # 未知方法必须回保留错误码 -32601（协议层错误不能被吞掉）
+      - name: rpc-cli surfaces unknown methods
+        shell: pwsh
+        run: |
+          $output = pwsh -NoProfile -File ./scripts/rpc-cli.ps1 -Exe ./desktop/release/omopredict-server.exe -DataDir ./ci-data -Method no.such.method 2>&1 | Out-String
+          if ($output -notmatch '\-32601') { throw "expected error code -32601:`n$output" }
 
