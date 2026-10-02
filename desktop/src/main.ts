@@ -27,10 +27,12 @@ import { mainWindowOptions } from './shell/windowOptions'
 const HERE = dirname(fileURLToPath(import.meta.url))
 
 /**
- * preload 文件名固定为 `.cjs`：窗口启用了 `sandbox: true`，而**沙箱化的 preload 必须是
- * CommonJS**；本包 `"type": "module"`，若叫 `preload.js` 会被当成 ESM 而加载失败。
+ * preload 必须是 **CommonJS**：窗口启用了 `sandbox: true`，而沙箱化的 preload 只能是 CJS，
+ * 本包又是 `"type": "module"`。做法是把它编译到 `dist/preload/`，并在那里放一个
+ * `{"type":"commonjs"}` 的 package.json（见 `tsconfig.preload.json` 与 `scripts/build-desktop.ps1`），
+ * 因此这里指向隔壁目录的 `preload.js`，而不是同目录的 `.cjs`。
  */
-const PRELOAD_FILE = 'preload.cjs'
+const PRELOAD_PATH = join(HERE, '..', 'preload', 'preload.js')
 
 /** 开发模式：加载 Vite dev server 而不是打包资源（docs/desktop.md §8）。 */
 const DEV_URL = process.env.OMO_DESKTOP_DEV_URL?.trim() || undefined
@@ -75,7 +77,7 @@ function registerAppProtocol(): void {
 }
 
 async function createMainWindow(): Promise<BrowserWindow> {
-  const win = new BrowserWindow(mainWindowOptions({ preloadPath: join(HERE, PRELOAD_FILE) }))
+  const win = new BrowserWindow(mainWindowOptions({ preloadPath: PRELOAD_PATH }))
   win.once('ready-to-show', () => win.show())
   win.on('closed', () => {
     mainWindow = null

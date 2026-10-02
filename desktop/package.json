@@ -5,9 +5,12 @@
   "type": "module",
   "packageManager": "pnpm@11.7.0",
   "description": "OMOPredict 桌面壳（Electron）：Host 层拉起并守护 Go 中间层与引擎（docs/desktop.md T6/T7）",
-  "main": "dist/main.js",
+  "main": "dist/main/main.js",
   "scripts": {
     "type-check": "tsc --noEmit",
+    "build:main": "tsc -p tsconfig.build.json",
+    "build:preload": "tsc -p tsconfig.preload.json",
+    "build": "pnpm build:main && pnpm build:preload",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -28,7 +31,8 @@
     "files": ["dist/**/*", "package.json"],
     "extraResources": [
       { "from": "../frontend/dist", "to": "dist" },
-      { "from": "release-bin/omopredict-server.exe", "to": "omopredict-server.exe" }
+      { "from": "release-bin/omopredict-server.exe", "to": "omopredict-server.exe" },
+      { "from": "release-bin/omo-rpc", "to": "engine" }
     ],
     "win": {
       "target": ["nsis", "zip"]

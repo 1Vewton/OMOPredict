@@ -1,0 +1,16 @@
+{
+  "//": "preload 必须编译成 CommonJS：窗口启用了 sandbox，而沙箱化 preload 只能是 CJS。",
+  "//2": "本包 type=module，所以靠 emit 到 dist/preload 并放一个 {type:commonjs} 的 package.json 来定类型（见 build-desktop.ps1）。",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist/preload",
+    "rootDir": "src",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "verbatimModuleSyntax": false,
+    "sourceMap": false
+  },
+  "include": ["src/preload.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}
