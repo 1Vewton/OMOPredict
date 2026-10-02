@@ -162,6 +162,8 @@
     --exclude-module uvicorn --exclude-module tkinter --exclude-module IPython --exclude-module pytest`
   - `--collect-submodules omo`（src 布局）
 - 体积预期：**numpy + scipy + pydantic ≈ 50–90MB**（比第 2 稿少 FastAPI/uvicorn）
+  - ⚠️ **实测偏差（2026-09）**：PyInstaller onedir 实际为 **165.6MB**。排除项均生效
+    （torch/fastapi/uvicorn/matplotlib 0 条目），即这是 numpy/scipy 的固有开销；门禁已相应设为 250MB（见 §7）。
 - 可选依赖化：`pyproject.toml` 增加 extras `neural = ["torch"]`、`plot = ["matplotlib"]`、
   `api = ["fastapi", "uvicorn"]`；**import 图测试**固化"导入 `omo.rpc` 后 sys.modules 无 torch/matplotlib/fastapi/uvicorn"。
 
@@ -354,7 +356,7 @@ OMOPredict/
 5. 关闭应用 → 任务历史保留；断网下全流程可用。
 6. **应用运行期间无监听端口**：`netstat -ano | findstr <PID>` 无 LISTENING 记录。
 7. 退出后无 `OMOPredict.exe` / `omopredict-server.exe` / `omo-rpc.exe` 残留。
-8. 安装包 ≤300MB、引擎目录 ≤90MB；数据目录为 `%LOCALAPPDATA%\OMOPredict\`，菜单可打开日志。
+8. 安装包 ≤300MB、引擎目录 ≤250MB（原定 90MB，2026-09 按实测放宽，见 §7）；数据目录为 `%LOCALAPPDATA%\OMOPredict\`，菜单可打开日志。
 
 ### 轻量包
 9. **未装 Python** 的机器：启动给出明确指引（缺 Python/uv + 安装说明 + 打开日志），不崩溃、不白屏。
