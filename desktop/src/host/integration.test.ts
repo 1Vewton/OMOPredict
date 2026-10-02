@@ -31,12 +31,15 @@ const enabled = Boolean(backendExe)
  * 数据目录：默认放系统临时目录；某些受限环境不允许在 `%TEMP%` 下创建 SQLite
  * （实测 modernc sqlite 会报 `unable to open database file`），此时用
  * `OMO_INTEGRATION_DIR` 指到可写目录。
+ *
+ * 无论哪种情况都返回**唯一子目录**：各用例若共用一个数据目录，先结束的用例删除时
+ * 会撞上仍被 SQLite 持有的文件（Windows 上表现为 EPERM），把通过的用例也判为失败。
  */
 function makeWorkDir(): string {
   const override = process.env.OMO_INTEGRATION_DIR?.trim()
   if (override) {
     mkdirSync(override, { recursive: true })
-    return override
+    return mkdtempSync(join(override, 'run-'))
   }
   return mkdtempSync(join(tmpdir(), 'omo-integration-'))
 }
