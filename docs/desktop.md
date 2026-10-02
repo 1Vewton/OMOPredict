@@ -295,13 +295,14 @@ OMOPredict/
 ```
 
 - 缓存：pnpm store、Go build cache、uv cache、Electron 二进制（`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`）。
-- **体积门禁**：完整包 ≤300MB、引擎目录 ≤90MB、**轻量包 ≤150MB**（原为 50MB，2026-09 放宽，见下）。
-  - ✅ **已决（2026-09）：轻量包保留内嵌 Electron 运行时 → 上限由 50MB 放宽到 150MB**。
-    原因：Electron 运行时自身约 110MB（压缩）/250MB（解包），"轻量包 ≤50MB"在该前提下不可能成立。
-    为不丢掉"防可选依赖泄漏"的作用，`build-lite.ps1` **新增一道紧门禁 `app payload ≤50MB`**，
-    盯住我们真正会改坏的部分（Go 后端 + 渲染产物 + 引擎源码 + 脚本）。实测应用侧载荷：
-    Go 后端 26.4MB + 渲染产物 0.61MB + 引擎源码 0.48MB ≈ **27.5MB 暂存 / 13.9MB 压缩**。
-    即：**payload 50MB（紧，防回归）+ 整包 150MB（宽，含 Electron 常量）+ 引擎目录 90MB**。
+- **体积门禁**：完整包 ≤300MB、**引擎目录 ≤250MB**（原 90MB，2026-09 按实测放宽）、**轻量包 ≤150MB**
+  （原 50MB，2026-09 放宽），另加跨两者的 **app payload ≤50MB** 紧门禁负责防可选依赖泄漏。
+  - ✅ **引擎目录：实测 165.6MB**（PyInstaller onedir，numpy + scipy），故上限由初稿的 90MB（当时估"50–90MB"）
+    **放宽到 250MB**。已验证产物中 `torch`/`fastapi`/`uvicorn`/`matplotlib` **均为 0 个条目**，
+    且 sidecar 真能算对结果（Rs≈3.9708）——即体积是 numpy/scipy 的固有开销，不是可选依赖泄漏。
+  - ✅ **轻量包：保留内嵌 Electron 运行时 → 上限由 50MB 放宽到 150MB**（Electron 约 110MB 压缩）。
+    为不丢掉防回归作用，新增 **app payload ≤50MB** 紧门禁盯住我们真正会改坏的部分。
+    实测应用侧载荷：Go 后端 26.4MB + 渲染产物 0.61MB + 引擎源码 0.48MB ≈ **27.5MB 暂存 / 13.9MB 压缩**。
 - **契约一致性测试**（必做）：同一组用例分别经 HTTP 与 RPC 执行，断言响应 JSON 深度相等；
   前端 `client.ts` 用同一套假传输做单测。
   - ✅ **后端部分已落地**：`internal/rpc/contract_test.go`（HTTP↔RPC 载荷逐字段比对）；
@@ -411,7 +412,7 @@ OMOPredict/
 | T6 Host 层 | ✅ 完成 | `desktop/src/host/`（**Electron 无关的纯 Node 模块**）：`paths`（D6 数据/日志目录，按目标平台选路径语义）+ `logger`（D7 按天日志、保留 7 天、目录不可用时退化为仅回显）+ `lines`（JSON-Lines 分帧：跨 chunk 半行、超长行丢弃）+ `rpc`（id↔Promise、单次超时、错误码=HTTP 语义、非法行/未知 id 只上报协议错误）+ `backend`（spawn、ping 健康检查、stderr 落盘、**退出时立刻失效在途请求**、限速重启、优雅关闭+超时强杀进程树、stdout 污染容忍）+ `engine`（只做 Go 看不到的引擎来源探测 + D9 第 5 级指引）+ `singleton`（文件锁）+ `host`（组装并注入 D6 环境变量，默认 `OMO_ENGINE_TRANSPORT=stdio`） |
 | T7 Electron 壳 | ✅ 完成（**未做运行期启动验证**，见下） | `src/main.ts`（主进程接线：单实例锁 + 聚焦已有窗口、`app://` 协议、菜单、IPC、优雅退出回收后端）、`src/preload.ts`（contextBridge 白名单，仅暴露 `rpc`/`openLogDir`/`openDataDir`）、`src/shell/`（与 Electron 解耦的壳逻辑：`appProtocol` app:// 解析 + 目录穿越防护 + CSP/安全头、`channels` IPC 通道与**结果信封**（避免 Electron 压掉 Error 的 `code`）、`preloadBridge`、`menu`、`windowOptions` 安全基线、`backendCommand` 打包/开发期定位、`diagnostics` 脱敏诊断）、`package.json` 的 electron-builder 配置（nsis + zip，extraResources：`dist/` + `omopredict-server.exe`） | `tsc --noEmit` **对真实 Electron 类型**干净（校验了 app/BrowserWindow/protocol/Menu/ipcMain 的全部用法）；**150 单测**（12 文件；含 app:// 目录穿越 5 种编码变体、CSP 无网络、IPC 信封跨进程边界、菜单/窗口安全基线、诊断脱敏）；集成测试新增**渲染进程可见链路**（`window.omo.rpc` → IPC 信封 → 真实 Go → 真实引擎，含 404 跨界） |
 | T8 轻量包 | ✅ 完成 | `scripts/setup-engine.ps1`（uv → pip 两条安装路径 + 发 ping 验证；失败一律给可操作指引）、`scripts/build-lite.ps1`（渲染产物 + Go 后端 + **引擎源码** + setup 脚本 + README → **三道体积门禁** → zip；`-AllowMissingShell` 支持无壳时只做暂存）、`desktop/lite/README.txt` 模板、`scripts/README.md` | 两个脚本**已实跑**：setup-engine 的成功/失败/自动发现/uv 四条路径、build-lite 的暂存（退出 2）/完整出包（退出 0）/两道门禁分别拦截（退出 1）；`desktop/` 集成测试新增**引擎不可用**用例（真实 Go 后端 + 不存在的解释器 → 任务落 `failed`，错误为 `engine: 启动 [...]: fork/exec ... cannot find the path specified`）；CI 新增 `packaging` job。体积门禁经 2026-09 决定放宽为 payload 50MB + 整包 150MB（见 §7） |
-| T9 契约一致性 + 脚本 + CI | 🔶 部分完成 | ✅ 已落地：后端 `internal/rpc/contract_test.go`（HTTP↔RPC 逐字段）、前端 vitest（5 文件 60 用例，含**两传输载荷一致性**）、桌面 vitest（150 用例 + 3 个门控集成用例）、**体积门禁**（`build-lite.ps1`，含 CI 反向验证）；⏳ 其余待做：`rpc-cli.ps1` / `build-desktop.ps1`（含 PyInstaller 引擎）/ `start-local.ps1` / CI 六 job 补齐（Release 上传、SHA256 清单）/ Release |
+| T9 契约一致性 + 脚本 + CI | 🔶 部分完成 | ✅ 已落地：后端 `internal/rpc/contract_test.go`（HTTP↔RPC 逐字段）、前端 vitest（5 文件 60 用例，含**两传输载荷一致性**）、桌面 vitest（150 用例 + 3 个门控集成用例）、**`rpc-cli.ps1`**（stdio 调试客户端，已实跑 ping/`tasks.list`/未知方法 `-32601`/直连引擎/坏 JSON 本地校验）、**`build-desktop.ps1`**（完整包：渲染 + Go + **PyInstaller sidecar** + 壳 TS（main ESM / preload CJS）→ electron-builder → 三道门禁；已实跑至 `-SkipPackaging`，并用打出的 sidecar 跑通数值一致性）、**体积门禁**（两脚本 + CI 反向验证"门禁真的会拦"）；⏳ 其余待做：`start-local.ps1`、Release 上传与 SHA256 清单、CI 六 job 补齐 |
 | T10 文档 | ⏳ | 待做（T1/T3 的契约已先行写入 `docs/api/rest.md` 与 `docs/api/rpc.md`；T4.5 的 stdio 变体见 `docs/api/engine.md`） |
 | T11 净机验收 | ⏳ | 待做 |
 
@@ -478,6 +479,22 @@ OMOPredict/
 > - CI 新增 `packaging` job（ubuntu + `pwsh`）：桩壳跑通打包全路径、验证门禁会拦、验证无引擎时的指引文案。
 > - ⚠️ **未做**：真实 electron-builder 产物（无 Electron 二进制）与**完整包**的 PyInstaller 引擎（T9）；
 >   轻量包的用户侧净机流程（T11）。体积门禁已按 2026-09 的决定放宽（见 §7 的 ✅ 说明）。
+
+> ✅ **T9 部分验证（2026-09，实测）**：本轮把"打包"从纸面推进到**真跑**：
+> - **`rpc-cli.ps1`（新）**：对我实测的四种情形全部通过——`ping` → `{"status":"ok"}`、
+>   `tasks.list` → `{"tasks":[]}`、未知方法 → 保留码 **-32601**、`-Target engine` 直连引擎、
+>   坏 JSON 在本地就被 `ConvertFrom-Json` 拦下（不会伪装成后端故障）。
+>   实现上刻意避开两个 PowerShell 5.1 陷阱：`ProcessStartInfo.ArgumentList` 在 .NET Framework 上不存在
+>   （改用 `Arguments` 字符串 + 自行加引号）、事件式异步读取改为 `ReadLineAsync()`/`ReadToEndAsync()`。
+> - **`build-desktop.ps1`（新）**：`-SkipPackaging` 全流程实跑通过——Go 后端 →
+>   **PyInstaller onedir（约 40s）** → 壳 TS（`dist/main` = ESM、`dist/preload` = CJS，
+>   并写入 `{"type":"commonjs"}` 定类型）→ 门禁（engine dir 165.64MB / 250MB，payload 27.09MB / 50MB）→ 退出 2。
+> - **打包出的 sidecar 真的能算**：把 `OMO_ENGINE_CMD` 指向 `release-bin/omo-rpc/omo-rpc.exe`（**全程无 Python**）
+>   后跑集成测试，**3/3 通过**——任务 `succeeded` 且 Rs≈3.9708 / T@550nm≈0.9745，含跨进程 404 与"无监听端口"。
+>   同时确认产物里 `torch`/`fastapi`/`uvicorn`/`matplotlib` **0 条目**。
+> - **布局对齐**：PyInstaller `--distpath release-bin` 产出 `release-bin/omo-rpc/`，electron-builder 映射到
+>   `resources/engine`，于是 exe 落在 `resources/engine/omo-rpc.exe`——正是 Go 的 `findSidecar` 期望的位置。
+> - ⚠️ **仍未做**：electron-builder 本身（需 Electron 二进制）、`start-local.ps1`、Release 上传与 SHA256 清单。
 
 ---
 

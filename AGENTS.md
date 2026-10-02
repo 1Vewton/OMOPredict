@@ -52,15 +52,16 @@ Web 形态（现行默认）
 └────────────┘              └──────────────┘          └──────────────┘         └──────────────┘
 ```
 
-> ✅ **桌面形态已完成到 T8**：单用户模式、任务删除、Go 侧 RPC 分发器、引擎侧 `omo.sim` + `omo.rpc`、
+> ✅ **桌面形态已完成到 T8，T9 大部分完成**：单用户模式、任务删除、Go 侧 RPC 分发器、引擎侧 `omo.sim` + `omo.rpc`、
 > **Go→引擎 stdio 传输**（T4.5）、**前端传输抽象 + `meta` 能力门禁**（T5）、**Electron Host 层**（T6）、
-> **Electron 壳**（T7：主进程 + preload + `app://` 协议 + 菜单 + IPC）、**轻量包**（T8：
-> `scripts/setup-engine.ps1` + `build-lite.ps1` + 体积门禁，CI 有 `packaging` job）。
+> **Electron 壳**（T7：主进程 + preload + `app://` 协议 + 菜单 + IPC）、**轻量包**（T8）、
+> **完整包脚本 + `rpc-cli.ps1` + PyInstaller 引擎 sidecar**（T9 部分：脚本与引擎已实跑，
+> electron-builder 与 Release 未做）。
 > 引擎启动命令按 `OMO_ENGINE_CMD` → 完整包 sidecar → `uv` → `python` 四级解析
 > （`server/internal/task/engine_resolve.go`）；前端 `activeTransport()` 依 `window.omo` 自动选 IPC/HTTP。
 > 全程**不监听任何端口**（已实测满足 docs/desktop.md §10.6）。
-> 仍未做：**T9–T11**（`rpc-cli.ps1`/`build-desktop.ps1`/CI 六 job/Release、文档收尾、**净机验收**——
-> 其中"壳真的能启动并渲染"必须由 T11 在装上 Electron 二进制的机器上验证）。
+> 仍未做：**T9 剩余 + T10–T11**（`start-local.ps1`、Release 上传与 SHA256、CI 完整包 job、文档收尾、**净机验收**——
+> 其中"壳真的能启动并渲染"与 electron-builder 实跑必须由 T11 在装上 Electron 二进制的机器上验证）。
 > ✅ **体积门禁已决（2026-09）**：轻量包保留内嵌 Electron 运行时，整包上限由 50MB **放宽到 150MB**，
 > 并新增 **app payload ≤50MB** 紧门禁负责防可选依赖泄漏（详见 `docs/desktop.md` §7）。
 
@@ -150,7 +151,8 @@ OMOPredict/
 │   │   └── cli/               # 命令行入口（omo-cli：--version/--info/optimize）
 │   └── tests/                 # 单元测试 + 文献基准测试 + RPC/import 图测试
 ├── desktop/                   # ── 桌面壳（Electron）──（T6 Host 层 + T7 壳；运行期验证属 T11）
-│   ├── package.json           # 独立 pnpm 工程 + electron-builder 配置（打包脚本属 T8/T9）
+│   ├── package.json           # 独立 pnpm 工程 + electron-builder 配置
+│   ├── tsconfig{,.build,.preload}.json  # 检查用 / main→ESM / preload→CJS（沙箱化 preload 必须 CJS）
 │   ├── vitest.config.ts       # 单测（node 环境，会真拉起子进程）
 │   ├── src/main.ts            # 主进程接线：窗口(app:// 协议)、菜单、IPC、单实例、优雅退出（T7）
 │   ├── src/preload.ts         # contextBridge 白名单 → window.omo（T7）
@@ -163,10 +165,12 @@ OMOPredict/
 │   │                          #   backendCommand（打包/开发期定位）· diagnostics（脱敏）
 │   ├── lite/README.txt        # 轻量包 README 模板（build-lite.ps1 注入版本号）
 │   └── test/fixtures/         # 假后端（真子进程，走真管道）
-├── scripts/                   # 构建与运维脚本（T8 起；**注释一律 ASCII**，见 HANDOVER §6.19）
+├── scripts/                   # 构建与运维脚本（T8/T9；**注释一律 ASCII**，见 HANDOVER §6.19）
 │   ├── setup-engine.ps1       # 轻量包用户准备引擎：uv sync 或 pip install -e + 发 ping 验证（T8）
 │   ├── build-lite.ps1         # 组装轻量包 + 体积门禁（0 出包 / 1 失败 / 2 仅暂存）（T8）
-│   └── README.md              # 用法、退出码、体积门禁与两条 .ps1 硬规矩
+│   ├── build-desktop.ps1      # 完整包：+ PyInstaller 引擎 sidecar + 壳 TS + electron-builder（T9）
+│   ├── rpc-cli.ps1            # stdio JSON-RPC 调试客户端（分开展示日志与响应）（T9）
+│   └── README.md              # 用法、退出码、体积门禁与 .ps1 硬规矩
 ├── server/                    # ── Go 中间层 ──（M3 完成；M6-a 增单用户模式与 RPC 分发器）
 │   ├── cmd/omopredict/        # 主程序入口（HTTP 服务；--stdio 走 stdio JSON-RPC）
 │   ├── internal/
@@ -198,24 +202,24 @@ OMOPredict/
         └── styles/            # 全局样式
 ```
 
-> 当前仓库处于 **M6-c 阶段（T1–T8 已完成）**：M4 前端与 M5（引擎反推 v1 + API/前端接入 v2）全部落地，
+> 当前仓库处于 **M6-c 阶段（T1–T8 完成，T9 大部分完成）**：M4 前端与 M5（引擎反推 v1 + API/前端接入 v2）全部落地，
 > 桌面形态亦已成形——单用户模式（`OMO_AUTH_MODE=none` + `GET /api/meta`）、
 > 任务删除（`DELETE /api/tasks/{id}`）、Go 侧 stdio RPC 分发器（`omopredict --stdio`）、
 > 引擎侧中立编排层 `omo.sim` + `omo.rpc` 入口 + 可选依赖化（基础仅 numpy/scipy）、
 > **Go→引擎 stdio 传输**（实测无监听端口）、**前端传输抽象与能力门禁**、
-> **桌面 Host 层**与 **Electron 壳**（主进程 + preload + `app://` + 菜单 + IPC）、
-> **轻量包脚本与体积门禁**（`scripts/`）。
+> **桌面 Host 层**、**Electron 壳**、**轻量包与完整包脚本 + 体积门禁**（`scripts/`，含 `rpc-cli.ps1`）、
+> **PyInstaller 引擎 sidecar**（实测能算对结果，且无 torch/fastapi 泄漏）。
 > 测试现状：Python **132 passed** / ruff 0；Go 全量测试通过（含 12 个 stdio 引擎用例）；
 > 前端 `pnpm lint` 0 告警 + `pnpm test`（5 文件 60 用例）+ `pnpm build` 通过；
-> 桌面 `pnpm type-check`（对真实 Electron 类型）+ `pnpm test`（**12 文件 150 用例**，
-> 另有 3 个需环境变量门控的真实端到端集成用例，已实跑通过）；`scripts/` 两脚本本机实跑过。
-> API 契约见 `docs/api/`（rest / engine / rpc）。
+> 桌面 `pnpm type-check`（对真实 Electron 类型）+ `pnpm build`（main ESM / preload CJS）
+> + `pnpm test`（**12 文件 150 用例**，另有 3 个需环境变量门控的真实端到端集成用例，已实跑通过）；
+> `scripts/` 四个脚本本机实跑过。API 契约见 `docs/api/`（rest / engine / rpc）。
 >
-> ⚠️ **"壳真的能启动并渲染"仍未验证**：本环境装不了 Electron 二进制，属 **T11 净机验收**。
-> ✅ **体积门禁已决（2026-09）**：轻量包保留内嵌 Electron，整包上限由 50MB **放宽到 150MB**，
-> 并新增 **app payload ≤50MB** 紧门禁负责防可选依赖泄漏（详见 `docs/desktop.md` §7）。
-> **下一步 T9**：`rpc-cli.ps1`、`build-desktop.ps1`（含 PyInstaller 引擎）、CI 六 job 与 Release；
-> 随后 T10 文档收尾、T11 净机验收。
+> ⚠️ **"壳真的能启动并渲染"仍未验证**：本环境装不了 Electron 二进制，属 **T11 净机验收**；
+> `electron-builder` 同样从未实跑（依赖该二进制），所以**最终产物形态**也属 T11。
+> ✅ **体积门禁已决（2026-09）**：轻量包保留内嵌 Electron（整包放宽到 150MB，另加 app payload ≤50MB 紧门禁）；
+> 引擎目录按实测（PyInstaller onedir 165.6MB）放宽到 250MB。详见 `docs/desktop.md` §7。
+> **下一步 T9 剩余**：`start-local.ps1`、Release 上传 + SHA256 清单、CI 完整包 job；随后 T10 文档收尾、T11 净机验收。
 
 ---
 
@@ -230,10 +234,10 @@ OMOPredict/
 | **M3** | Go 中间层 | 用户系统、膜结构/任务数据模型、任务编排、REST API |
 | **M4** | Vue 前端 | 参数设计页、仿真结果图表、任务历史、对标对比展示（**已完成**：登录/注册、膜层设计、ECharts 结果图、任务历史） |
 | **M5** | 优化与工艺指导 | 参数优化、灵敏度分析、报告导出（**v1 引擎反推 + v2 API/前端接入均已完成**：约束网格扫描 + FoM 排序 + 逐层灵敏度/工艺窗口；引擎 `POST /optimize` → Go `kind=optimize` → 前端「目标反推」页；剩余：报告导出、高级寻优、NN 代理加速） |
-| **M6** | 集成与打磨 | 端到端联调、文档完善、示例数据与演示；**扩展：桌面版**（M6-a/b/c T1–**T8** ✅ 单用户模式 / 任务删除 / Go RPC 分发器 / 引擎编排下沉 / **Go→引擎 stdio 传输** / **前端传输抽象+能力门禁** / **Electron Host 层** / **Electron 壳** / **轻量包与体积门禁**；M6-c T9 ⏳ `rpc-cli.ps1` / `build-desktop.ps1`（PyInstaller 引擎）/ CI 六 job / Release；M6-d T10–T11 ⏳ 文档收尾 / **净机验收（含壳运行期验证）**） |
+| **M6** | 集成与打磨 | 端到端联调、文档完善、示例数据与演示；**扩展：桌面版**（M6-a/b/c T1–**T8** ✅ + **T9 大部分** ✅ 单用户模式 / 任务删除 / Go RPC 分发器 / 引擎编排下沉 / **Go→引擎 stdio 传输** / **前端传输抽象+能力门禁** / **Electron Host 层** / **Electron 壳** / **轻量包与完整包脚本 + 体积门禁** / **`rpc-cli.ps1` 调试 CLI** / **PyInstaller 引擎 sidecar**；M6-c T9 剩余 ⏳ `start-local.ps1` / Release 上传与 SHA256 / CI 完整包 job；M6-d T10–T11 ⏳ 文档收尾 / **净机验收（含壳运行期验证 + electron-builder 实跑）**） |
 
-**当前进度**：M4 ✅ + M5 ✅（v1 引擎反推 19 测试全过、默认 4k 组合 ~3 s；v2 API/前端接入端到端冒烟通过）+ **M6-a/b/c ✅（T1–T8：桌面双链路 + 前端门禁 + Host 层 + Electron 壳 + 轻量包）**。
-下一步 **T9（`rpc-cli.ps1`、`build-desktop.ps1`、CI 六 job、Release）**；"无端口"已由 T4.5 解锁并实测（见 §2），**壳运行期验证属 T11**。
+**当前进度**：M4 ✅ + M5 ✅（v1 引擎反推 19 测试全过、默认 4k 组合 ~3 s；v2 API/前端接入端到端冒烟通过）+ **M6-a/b/c ✅（T1–T8 完成、T9 大部分完成：桌面双链路 + 前端门禁 + Host 层 + Electron 壳 + 轻量包 + 完整包脚本/调试 CLI/PyInstaller sidecar）**。
+下一步 **T9 剩余（`start-local.ps1`、Release + SHA256、CI 完整包 job）**；"无端口"已由 T4.5 解锁并实测（见 §2），**壳运行期验证与 electron-builder 实跑属 T11**。
 
 **阶段完成标准**：每个里程碑必须有可运行的代码 + 测试通过 + 文档更新，不允许"只写代码不验证"。
 
@@ -299,15 +303,19 @@ cd frontend && pnpm build                 # vue-tsc -b + vite build
 # 桌面壳（Host 层 T6 + Electron 壳 T7）
 cd desktop && pnpm install
 cd desktop && pnpm type-check             # tsc --noEmit（含真实 Electron 类型）
+cd desktop && pnpm build                  # main→ESM / preload→CJS（沙箱化 preload 必须 CJS）
 cd desktop && pnpm test                   # vitest（node；用例会真拉起子进程）
 # 真实端到端集成测试默认跳过，需显式给出后端与引擎（详见 desktop/README.md）：
 #   OMO_BACKEND_EXE=<omopredict.exe> OMO_ENGINE_CMD='python -m omo.rpc' pnpm vitest run src/host/integration.test.ts
 # 启动壳（需 Electron 二进制；本环境尚未下载，见 docs/desktop.md §13）：pnpm exec electron dist/main.js
 
-# 打包与运维脚本（T8；Windows 优先，但已写成可跨平台）
+# 打包与运维脚本（T8/T9；Windows 优先，但已写成可跨平台）
 powershell -ExecutionPolicy Bypass -File scripts\setup-engine.ps1              # 轻量包用户准备引擎
 powershell -ExecutionPolicy Bypass -File scripts\setup-engine.ps1 -SkipInstall # 只验证引擎可用
 powershell -ExecutionPolicy Bypass -File scripts\build-lite.ps1               # 出轻量包（0 出包/1 失败/2 仅暂存）
+powershell -ExecutionPolicy Bypass -File scripts\build-desktop.ps1            # 出完整包（含 PyInstaller 引擎）
+powershell -ExecutionPolicy Bypass -File scripts\build-desktop.ps1 -SkipPackaging   # 前四步 + 门禁
+powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method ping      # 协议调试（-Target engine 直连引擎）
 ```
 
 > 端到端联调步骤、端口占用与其它环境坑见 `docs/HANDOVER.md` §3 与 §6。
@@ -328,4 +336,4 @@ powershell -ExecutionPolicy Bypass -File scripts\build-lite.ps1               # 
 
 ---
 
-*最后更新：T8（轻量包 + 体积门禁）完成。每次架构、物理模型或里程碑变更时，记得同步更新本文件。*
+*最后更新：T9 大部分完成（`rpc-cli.ps1`、`build-desktop.ps1`、PyInstaller 引擎 sidecar）。每次架构、物理模型或里程碑变更时，记得同步更新本文件。*

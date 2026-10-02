@@ -38,8 +38,11 @@ OMO（氧化物/金属/氧化物）纳米多层薄膜仿真设计软件：三层
 
 | **M6-c T8** | ✅ | **轻量包**：`scripts/setup-engine.ps1`（uv → pip 两条安装路径 + 发 ping 验证；**任何失败都落进统一的"可操作指引"块**）、`scripts/build-lite.ps1`（渲染产物 + Go 后端 + 引擎源码 + setup 脚本 + README → **体积门禁** → zip；`-AllowMissingShell` 无壳时只暂存并**退出 2**）、`desktop/lite/README.txt` 模板、`scripts/README.md`；CI 加 `packaging` job | 两脚本**实跑**：setup-engine 四条路径（指定解释器 / uv 分支 / 目录非法 / 解释器不存在）全过；build-lite 暂存（退出 2）/完整出包（退出 0，13.9MB）/门禁拦截（退出 1）；集成测试新增**引擎不可用**用例（真实 Go + 不存在解释器 → 任务 `failed`，错误点名失败的命令）。**体积门禁已决**：轻量包保留 Electron → 整包上限由 50MB 放宽到 150MB，另加 **app payload ≤50MB** 紧门禁防依赖泄漏（见 §7 T8 块） |
 
-测试现状：Python **132 passed / ruff 0**（2026-09 文件权限修复后不再有 tmp_path 报错，见 §6.22；此前记录的"128 passed + 4 个 PermissionError"已过时）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流、单用户模式与 **12 个 stdio 引擎用例**）；前端 `pnpm lint` 0 告警 + `pnpm test`（**vitest：5 文件 60 用例**）+ `pnpm build`（`vue-tsc -b` + `vite build`）通过；桌面 `desktop/`：`pnpm type-check`（含真实 Electron 类型）+ `pnpm test`（**12 文件 150 用例**，
-另有 3 个需环境变量门控的真实端到端集成用例，已实跑通过）通过；`scripts/` 两个脚本本机实跑过（见 §7 T8 块）。
+| **M6-c T9** | 🔶 部分 | **契约 + 脚本 + CI**：`scripts/rpc-cli.ps1`（stdio 调试客户端：ping / tasks.list / 未知方法 `-32601` / 直连引擎 / 坏 JSON 本地校验）、`scripts/build-desktop.ps1`（完整包：渲染 + Go + **PyInstaller onedir sidecar** + 壳 TS → electron-builder → 三道门禁）、壳 TS 编译管线（`tsconfig.build.json` = ESM、`tsconfig.preload.json` = CJS + `{"type":"commonjs"}`）、CI `desktop` job 加 `pnpm build`、`packaging` job 加 rpc-cli 冒烟 | 两脚本**实跑**：rpc-cli 四种情形全过；build-desktop `-SkipPackaging` 全流程通过（engine dir **165.64MB** / payload 27.09MB / 退出 2）；**打出的 sidecar 真的能算**——把 `OMO_ENGINE_CMD` 指向它跑集成测试 **3/3 通过**（Rs≈3.9708，全程无 Python），产物中 torch/fastapi/uvicorn/matplotlib **0 条目**。⏳ 未做：`start-local.ps1`、Release 上传 + SHA256、electron-builder 实跑（需 Electron 二进制） |
+
+测试现状：Python **132 passed / ruff 0**（2026-09 文件权限修复后不再有 tmp_path 报错，见 §6.22；此前记录的"128 passed + 4 个 PermissionError"已过时）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流、单用户模式与 **12 个 stdio 引擎用例**）；前端 `pnpm lint` 0 告警 + `pnpm test`（**vitest：5 文件 60 用例**）+ `pnpm build`（`vue-tsc -b` + `vite build`）通过；桌面 `desktop/`：`pnpm type-check`（含真实 Electron 类型）+ `pnpm build`（main ESM / preload CJS）+ `pnpm test`（**12 文件 150 用例**，
+另有 3 个需环境变量门控的真实端到端集成用例，已实跑通过——包括对着 **PyInstaller 打出的 sidecar** 跑）通过；
+`scripts/` 四个脚本本机实跑过（见 §7 的 T8/T9 块）。
 
 ## 3. 三层架构与启动
 
@@ -216,6 +219,19 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
 27. **⚠️ `Get-ChildItem -Recurse -File` 传单个文件会重复计数（T8 实测）**：想量一个文件的大小时
     它会返回两次，得到 2× 的值（曾据此误判 Go 后端 26.4MB 为 52.8MB）。量文件用 `Get-Item`，
     量目录才用 `Get-ChildItem -Recurse`；脚本里的体积门禁只作用于目录，因此不受影响。
+28. **⚠️ PowerShell 变量大小写不敏感，会和参数"撞名"（T9 实测）**：写了 `param([ValidateSet(...)][string] $Target)`，
+    又在函数里 `$target = Resolve-Target` → 两者是**同一个变量**，赋值直接触发 ValidateSet 校验失败，
+    报的是 `System.Collections.Hashtable is not a valid value for the Target variable`（完全看不出根因）。
+    局部变量名要避开参数名（哪怕只差大小写），如 `$endpoint`。
+29. **⚠️ `-f` 格式化遇到 JSON 字面量会炸（T9 实测）**：`'{"jsonrpc":"2.0","method":"{0}"}' -f $m` 里的 `{`/`}`
+    被当成格式占位符，报 `Error formatting a string: Input string was not in a correct format`。
+    拼 JSON 用字符串拼接（或把花括号写成 `{{`/`}}`），别用 `-f`。
+30. **⚠️ `ProcessStartInfo.ArgumentList` 在 Windows PowerShell 5.1 上不存在（T9 实测）**：它是 .NET Core 2.1+ 的
+    API，5.1 跑在 .NET Framework 上，取到的是 `$null`，`.Add()` 于是报
+    `You cannot call a method on a null-valued expression`。改用 `$startInfo.Arguments = '<带引号的整串>'`
+    并自己给含空格的参数加引号。同理，`add_OutputDataReceived` 这类事件式读取不如
+    `$process.StandardOutput.ReadLineAsync()` + `Task.Wait(ms)`、`StandardError.ReadToEndAsync()` 可靠
+    （stderr 要**并发**抽干，否则管道写满会把子进程卡死）。
 
 ## 7. 未完成事项与后续计划
 
@@ -318,19 +334,40 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
 - ✅ **体积门禁（2026-09 已决）**：轻量包**保留内嵌 Electron 运行时**，因此上限由原设计的 50MB
   **放宽到 150MB**（Electron 自身压缩后约 110MB，该数字不可能压到 50MB 以下）。为不丢掉"防可选依赖泄漏"
   的作用，同时新增一道**紧门禁 `app payload ≤50MB`**（Go 后端 + 渲染产物 + 引擎源码 + 脚本，实测 27.5MB）
-  ——torch 泄漏会让它直接爆掉。三道门禁：payload 50MB（紧）+ 整包 150MB（宽，含 Electron 常量）+
-  引擎目录 90MB。可用 `-PayloadLimitMB` / `-PackageLimitMB` / `-EngineLimitMB` 覆盖。
+  ——torch 泄漏会让它直接爆掉。
 
-**M6-c/d 剩余（T9–T11）—— ⏳ 待做**：T9 `rpc-cli.ps1`/`build-desktop.ps1`（含 PyInstaller 引擎）/CI 六 job 与 Release、T10 文档收尾、T11 净机验收。
-> 🔶 **T9 已部分完成（2026-09）**：**后端契约测试**（`internal/rpc/contract_test.go`，HTTP↔RPC 逐字段）+
-> **前端 vitest**（5 文件 60 用例）+ **桌面 vitest**（12 文件 150 用例 + 3 个门控集成用例）+
-> **体积门禁**（`build-lite.ps1`，且 CI 反向验证"门禁真的会拦"）已落地；
-> CI 有 **engine / go / frontend / desktop / packaging 五个 job**。
-> **其余 T9 项仍待做**：桌面 lint、`rpc-cli.ps1`、`start-local.ps1`、`build-desktop.ps1`（完整包 + PyInstaller 引擎）、
-> Release 上传与 SHA256 清单。
+**M6-c T9（契约 + 脚本 + CI）—— 🔶 部分完成（2026-09）**：
+- `scripts/rpc-cli.ps1`：手工调试 stdio 端点——把请求发进去，**分开**打印 stderr 日志与解析后的 JSON 响应。
+  支持 `-Target backend|engine`、`-Method/-Params` 或 `-RequestFile`（多行）、`-Exe`、`-DataDir`。
+  实测：ping → `{"status":"ok"}`、`tasks.list` → `{"tasks":[]}`、未知方法 → 保留码 `-32601`、
+  `-Target engine` 直连引擎 OK、坏 JSON 在本地被拦（不伪装成后端故障）。
+  实现避坑：`ProcessStartInfo.ArgumentList` 属于 .NET Core 2.1+，**Windows PowerShell 5.1（.NET Framework）没有**
+  → 改用 `Arguments` 字符串并自行给含空格的参数加引号；异步读取用 `ReadLineAsync()` + `Task.Wait(ms)`
+  与 `ReadToEndAsync()`（stderr 后台抽干，避免管道写满把子进程卡住）。
+- `scripts/build-desktop.ps1`（完整包，六步）：渲染 → Go 后端 → **PyInstaller onedir 引擎** →
+  壳 TS（main ESM / preload CJS）→ electron-builder → 门禁。`-SkipPackaging` 只做前四步 + 门禁（退出 2）。
+  - PyInstaller 走 `uv run --project engine --with pyinstaller`：**不把 pyinstaller 写进项目依赖**（不动 `uv.lock`），
+    但仍在引擎环境里执行，numpy/scipy 才能被发现。约 40s 出包。
+  - **布局对齐（易错）**：`--distpath release-bin` 产出 `release-bin/omo-rpc/`，electron-builder 把
+    `release-bin/omo-rpc → resources/engine`，于是 exe 正好落在 `resources/engine/omo-rpc.exe`
+    ——Go 的 `findSidecar` 只在 `resources/engine/` 下**直接**找 exe、不递归子目录，映射错一层就找不到引擎。
+- **壳 TS 编译管线（T7 的遗留必要件）**：`tsconfig.build.json` → `dist/main`（ESM，用 `import.meta`）、
+  `tsconfig.preload.json` → `dist/preload`（CommonJS），构建脚本再写一个 `{"type":"commonjs"}` 的 package.json
+  来定类型（本包 `type: module`）。`main.ts` 的 preload 路径随之改为隔壁目录的 `preload.js`。
+  已核验产物：`main.js` 含 `import`/`import.meta`；`preload.js` 含 `require`/`exports` 且无 `import`。
+- **实测体积事实（据此放宽门禁）**：PyInstaller onedir = **165.64MB**（numpy + scipy），
+  远超设计初稿 90MB 的估计（当时估"50–90MB"）。engine dir 门禁放宽到 **250MB**；
+  产物中 `torch`/`fastapi`/`uvicorn`/`matplotlib` **均 0 条目**、sidecar 又能算对结果，
+  说明这是 numpy/scipy 的固有开销而不是依赖泄漏。
+- ⏳ **T9 剩余**：`start-local.ps1`（HTTP 模式无壳调试 + 开浏览器）、Release 上传与 SHA256 清单、
+  CI 补齐"完整包 job"（需 Electron 二进制，本环境拉不动）。
+
+**M6-d T10–T11 —— ⏳ 待做**：文档收尾、净机验收。
 > ⚠️ **T11 必须验证的第一件事**：装上 Electron 二进制后**壳能否真的启动并渲染**
-> （窗口、`app://` 加载 `frontend/dist`、CSP 是否误伤 Vue/ECharts 的行内样式、IPC 是否通）。
+> （窗口、`app://` 加载 `frontend/dist`、CSP 是否误伤 Vue/ECharts 的行内样式、preload 是否成功注入 `window.omo`）。
 > 本环境装不了 Electron 二进制（约 100MB+，拉包速率过低），因此这几件事**一次都没跑过**。
+> 补充：**`electron-builder` 也从未实跑过**（同样依赖该二进制），所以"完整包/轻量包的最终产物形态"仍属 T11；
+> 目前只验到了它的**输入**（壳 TS、Go 后端、PyInstaller sidecar）与布局契约。
 > 注意 stdio 传输下 **stdout 只能是协议流**（引擎与 Go 的日志都必须在 stderr，见 §6.15）。
 
 **M6（集成）**：部署（Go 静态托管 frontend/dist + CORS 配置）、示例数据与演示、端到端测试完善。
@@ -344,10 +381,9 @@ NN 代理 v2（材料参数入特征 / 逆向设计）。
 2. 跑通现有验证：`cd engine && uv run --all-extras pytest -q`（**132 passed**）、`cd server && go test ./...`、
    `cd frontend && pnpm lint && pnpm test && pnpm build`、`cd desktop && pnpm type-check && pnpm test`
    （**注意 §6.11/§6.22/§6.23**：沙箱文件权限与 `%TEMP%` 写入限制会让 vite/esbuild、node_modules 与 SQLite 失败）
-3. 若续做桌面版：**T1–T8 均已就绪**，下一步 **T9（`rpc-cli.ps1`、`build-desktop.ps1`、CI 六 job、Release）**；
-   装上 Electron 二进制后请**先做 T11 的运行期验收**（壳启动/渲染/CSP，见下）；
-   动手前注意：体积门禁**已决**（轻量包保留 Electron → 整包上限放宽到 150MB，另加 payload 50MB 紧门禁，
-   见 §7 T8 块），无需再定夺；
+3. 若续做桌面版：**T1–T8 完成、T9 大部分完成**，剩余 **`start-local.ps1`、Release 上传 + SHA256、CI 完整包 job**；
+   装上 Electron 二进制后请**先做 T11 的运行期验收**（壳启动/渲染/CSP/preload，见下）；
+   动手前注意：体积门禁**已决**（轻量包 150MB + payload 50MB + 引擎目录 250MB，见 §7 T8/T9 块），无需再定夺；
    Host 与壳的接线面见 `desktop/README.md`（`Host.invoke` / `Host.onEvent` / `Host.dispose`，
    以及 `src/shell/` 里已固化的 `window.omo` 契约）；打包脚本见 `scripts/README.md`；
    手工联调桌面链路（无端口）：`OMO_AUTH_MODE=none OMO_ENGINE_TRANSPORT=stdio OMO_ENGINE_CMD='python -m omo.rpc' ./omopredict --stdio`，

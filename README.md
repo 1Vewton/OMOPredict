@@ -44,7 +44,9 @@
   150 单测（含 app:// 目录穿越防护、CSP 无网络、IPC 信封）；**壳的启动与渲染尚未实跑**（属 T11 净机验收）
 - ✅ T8 **轻量包**（`scripts/`）：`setup-engine.ps1`（用户在自备 Python 上装引擎并 ping 验证，失败给可操作指引）
   + `build-lite.ps1`（渲染产物 + Go 后端 + 引擎源码 → 体积门禁 → zip）
-- ⏳ M5 剩余（报告导出、高级寻优、NN 代理加速）/ M6 剩余（T9–T11：`build-desktop.ps1`/CI 六 job/Release、净机验收）
+- ✅ T9 大部分 **完整包与调试工具**：`build-desktop.ps1`（+ **PyInstaller 引擎 sidecar**，实测能算对结果且无
+  torch/fastapi 泄漏）+ `rpc-cli.ps1`（stdio 协议调试）+ 壳 TS 编译（main=ESM / preload=CJS）+ 体积门禁
+- ⏳ M5 剩余（报告导出、高级寻优、NN 代理加速）/ M6 剩余（T9 尾项 `start-local.ps1`/Release、T11 净机验收）
 
 ## 快速开始
 
@@ -72,13 +74,15 @@ cd server && go test ./...                        # Go 全量测试
 cd frontend && pnpm lint && pnpm test && pnpm build   # 前端 lint + 单测 + 构建
 cd desktop && pnpm type-check && pnpm test        # 桌面 Host 层与壳逻辑（含真子进程用例）
 
-# 打包（轻量包：用户自备 Python）
+# 打包（轻量包：用户自备 Python；完整包：内置引擎）
 powershell -ExecutionPolicy Bypass -File scripts\setup-engine.ps1   # 准备/验证引擎
 powershell -ExecutionPolicy Bypass -File scripts\build-lite.ps1     # 出轻量包
+powershell -ExecutionPolicy Bypass -File scripts\build-desktop.ps1  # 出完整包（含 PyInstaller 引擎）
+powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method ping   # 协议调试
 ```
 
-详细启动/配置/接口见文档索引。桌面版已完成到 T8（Host 层、Electron 壳、轻量包）；
-**壳的启动与渲染尚未实跑**、完整包 (`build-desktop.ps1`) 属 T9，详见 `docs/desktop.md` §13。
+详细启动/配置/接口见文档索引。桌面版已完成到 T8、T9 大部分（脚本与内置引擎已实跑）；
+**壳的启动与渲染、electron-builder 打包尚未实跑**，属 T11，详见 `docs/desktop.md` §13。
 
 ## 局限性与适用范围（Limitations）
 
