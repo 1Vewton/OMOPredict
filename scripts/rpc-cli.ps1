@@ -43,8 +43,18 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'omopredict-rpc-cli'
-New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
 if ($DataDir -eq '') { $DataDir = $tempRoot }
+
+# Create the data directory first. SQLite does NOT create the parent directory for us: when it is
+# missing, the Go side only reports "unable to open database file" (SQLITE_CANTOPEN - a misleading
+# message, see HANDOVER 6.23) and it looks like the engine or backend is broken.
+if (-not (Test-Path -LiteralPath $DataDir)) {
+    $null = New-Item -ItemType Directory -Force -Path $DataDir -ErrorAction SilentlyContinue
+}
+if (-not (Test-Path -LiteralPath $DataDir)) {
+    throw "data directory does not exist and could not be created: $DataDir"
+}
+$DataDir = (Resolve-Path -LiteralPath $DataDir).Path
 
 function Resolve-Target {
     if ($Target -eq 'engine') {
@@ -143,14 +153,30 @@ catch {
 }
 
 $deadline = (Get-Date).AddSeconds($TimeoutSec)
+$stopReason = 'timeout'
 while ($responses.Count -lt $payload.Count) {
-    $remaining = [int][Math]::Max(0, ($deadline - (Get-Date)).TotalMilliseconds)
+    # Do not sit out the whole timeout when the endpoint already exited (e.g. store open failed):
+    # drain whatever is buffered on stdout, then stop.
+    $remaining = if ($process.HasExited) {
+        200
+    }
+    else {
+        [int][Math]::Max(0, ($deadline - (Get-Date)).TotalMilliseconds)
+    }
     if ($remaining -le 0) { break }
+
     $readTask = $process.StandardOutput.ReadLineAsync()
-    if (-not $readTask.Wait($remaining)) { break }   # timeout: stop waiting
-    if ($null -eq $readTask.Result) { break }        # stdout closed
+    if (-not $readTask.Wait($remaining)) {
+        if ($process.HasExited) { $stopReason = 'exited' }
+        break
+    }
+    if ($null -eq $readTask.Result) {
+        $stopReason = 'exited'   # stdout closed = the endpoint has exited
+        break
+    }
     $responses.Add($readTask.Result)
 }
+if ($responses.Count -ge $payload.Count) { $stopReason = 'answered' }
 
 # Close stdin so the endpoint exits the same way it does when the shell shuts down.
 try {
@@ -173,7 +199,14 @@ Write-Host '--- stdout (JSON-RPC) ---'
 if ($responses.Count -eq 0) {
     Write-Host '(no response)'
     Write-Host ''
-    Write-Host ("No response within {0}s. Check the stderr above." -f $TimeoutSec)
+    if ($stopReason -eq 'exited') {
+        # Report "the endpoint exited" rather than "timeout": on CI this was misread as a timeout
+        # while the real cause (backend failed at startup) was sitting in stderr.
+        Write-Host ("The endpoint exited before answering (exit code {0}); see the stderr above." -f $process.ExitCode)
+    }
+    else {
+        Write-Host ("No response within {0}s. Check the stderr above." -f $TimeoutSec)
+    }
     exit 1
 }
 foreach ($line in $responses) {
