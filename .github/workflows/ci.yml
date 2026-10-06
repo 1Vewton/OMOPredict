@@ -176,21 +176,26 @@ jobs:
           pwsh -NoProfile -File ./scripts/build-lite.ps1 -AllowMissingShell -SkipFrontendBuild -ShellDir packaging/stand-in-shell
           if ($LASTEXITCODE -ne 0) { throw "build-lite.ps1 failed with exit code $LASTEXITCODE" }
 
-      # 体积门禁必须真的会拦（否则门禁形同虚设）
+      # 体积门禁必须真的会拦（否则门禁形同虚设）。
+      # 末尾的 exit 0 是必须的：GitHub 的 pwsh 包装器用最后的 $LASTEXITCODE 决定本步退出码，
+      # 而我们刚刚**故意**让子进程退出 1 —— 不显式清零，这一步就会被判为失败。
       - name: Size gate must trip when the limit is lowered
         shell: pwsh
         run: |
           pwsh -NoProfile -File ./scripts/build-lite.ps1 -AllowMissingShell -SkipFrontendBuild -SkipGoBuild -ShellDir packaging/stand-in-shell -PayloadLimitMB 1
           if ($LASTEXITCODE -ne 1) { throw "expected the size gate to exit 1, got $LASTEXITCODE" }
+          exit 0
 
       # T8 验收项"无 Python 错误路径"：没有可用引擎时必须退出 1 并给出可操作指引，
       # 而不是抛一段 PowerShell 堆栈。CI 上（未安装引擎）正好就是这个状态。
+      # 同样以 exit 0 收尾：这一步期望子进程退出 1。
       - name: Engine error path must be actionable
         shell: pwsh
         run: |
           $output = pwsh -NoProfile -File ./scripts/setup-engine.ps1 -SkipInstall 2>&1 | Out-String
           if ($LASTEXITCODE -ne 1) { throw "expected setup-engine.ps1 to exit 1 without an engine, got $LASTEXITCODE" }
           if ($output -notmatch 'What to check') { throw "setup-engine.ps1 did not print the guidance block:`n$output" }
+          exit 0
 
       # 调试 CLI 必须真的能跑通协议（上一步已产出 desktop/release/omopredict-server.exe）
       - name: rpc-cli smoke (ping over stdio)
@@ -199,6 +204,7 @@ jobs:
           $output = pwsh -NoProfile -File ./scripts/rpc-cli.ps1 -Exe ./desktop/release/omopredict-server.exe -DataDir ./ci-data -Method ping 2>&1 | Out-String
           if ($LASTEXITCODE -ne 0) { throw "rpc-cli.ps1 exited $LASTEXITCODE`n$output" }
           if ($output -notmatch '"status"\s*:\s*"ok"') { throw "rpc-cli.ps1 got no ping response:`n$output" }
+          exit 0
 
       # 未知方法必须回保留错误码 -32601（协议层错误不能被吞掉）
       - name: rpc-cli surfaces unknown methods
@@ -206,4 +212,5 @@ jobs:
         run: |
           $output = pwsh -NoProfile -File ./scripts/rpc-cli.ps1 -Exe ./desktop/release/omopredict-server.exe -DataDir ./ci-data -Method no.such.method 2>&1 | Out-String
           if ($output -notmatch '\-32601') { throw "expected error code -32601:`n$output" }
+          exit 0
 
