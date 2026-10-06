@@ -236,7 +236,8 @@ engine/artifacts/
 
 # Typst 文档构建产物（源文件 docs/*.typ 已入库，PDF 可随时重新编译）
 #   typst compile docs/omopredict-overview.typ docs/omopredict-overview.pdf
-docs/omopredict-overview.pdf
+#   typst compile docs/omopredict-slides.typ   docs/omopredict-slides.pdf
+docs/omopredict-*.pdf
 
 # 校外机构/院系/课题组调研产物（AI 代理生成，仅供本地参考，禁止入库）
 #   .research/  抓取的原始页面文本缓存   .scratch/  中间产物   docs/research/  调研报告
