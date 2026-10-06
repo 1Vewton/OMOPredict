@@ -1,4 +1,5 @@
 // 菜单、窗口选项、后端定位与诊断的单测。
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { buildMenuTemplate, type MenuActions } from './menu'
 import { DEFAULT_WINDOW_SIZE, mainWindowOptions } from './windowOptions'
@@ -189,9 +190,16 @@ describe('诊断信息', () => {
   })
 
   it('buildDiagnostics 给出各层版本、路径、后端状态与引擎来源', () => {
+    // 路径必须按**宿主平台**的语义构造：buildDiagnostics 用宿主 path.basename 把 db 缩成文件名，
+    // 在 Linux CI 上给它一个 Windows 路径会原样保留（这样写才不依赖跑在哪个平台）。
+    const dataDir = join('d')
     const payload = buildDiagnostics({
       versions: { app: '0.1.0', electron: '44.4.5', node: '24.0.0' },
-      paths: { dataDir: 'C:\\d', logsDir: 'C:\\d\\logs', dbPath: 'C:\\d\\omopredict.db' },
+      paths: {
+        dataDir,
+        logsDir: join(dataDir, 'logs'),
+        dbPath: join(dataDir, 'omopredict.db'),
+      },
       backendStatus: 'ready',
       backendPid: 1234,
       engine: { source: 'bundled-sidecar', env: { OMO_ENGINE_CMD: 'x', OMO_JWT_SECRET: 'leak' } },
@@ -200,7 +208,8 @@ describe('诊断信息', () => {
     })
     expect(payload.generatedAt).toBe('2026-09-30T10:00:00.000Z')
     expect(payload.versions).toMatchObject({ electron: '44.4.5' })
-    expect(payload.paths).toMatchObject({ dataDir: 'C:\\d', db: 'omopredict.db' })
+    // db 只保留文件名（诊断包要能安全地发给别人看）
+    expect(payload.paths).toMatchObject({ dataDir, db: 'omopredict.db' })
     expect(payload.backend).toEqual({ status: 'ready', pid: 1234 })
     expect(payload.engine).toMatchObject({ source: 'bundled-sidecar' })
     // 密钥不得出现在诊断里

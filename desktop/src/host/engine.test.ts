@@ -108,9 +108,16 @@ describe('engineSetupGuidance / describeEngineFailure（D9 第 5 级）', () => 
     expect(text).toContain('setup-engine.ps1')
   })
 
-  it('Linux/macOS 指引给出 setup-engine.sh', () => {
-    expect(engineSetupGuidance('linux')).toContain('setup-engine.sh')
-    expect(engineSetupGuidance('darwin')).toContain('setup-engine.sh')
+  it('Linux/macOS 指引给出手工命令，且不承诺不存在的脚本', () => {
+    // 只随包发了 scripts/setup-engine.ps1；非 Windows 必须给能真正执行的等价命令，
+    // 而不是一个仓库里根本没有的 setup-engine.sh。
+    for (const platform of ['linux', 'darwin'] as const) {
+      const text = engineSetupGuidance(platform)
+      expect(text).toContain('uv sync')
+      expect(text).toContain('pip install -e engine')
+      expect(text).not.toContain('setup-engine.sh')
+      expect(text).not.toContain('setup-engine.ps1')
+    }
   })
 
   it('优先展示后端打印的引擎报错（Go 侧已给出可操作指引）', () => {
@@ -118,19 +125,24 @@ describe('engineSetupGuidance / describeEngineFailure（D9 第 5 级）', () => 
       '2026/09/28 engine transport: stdio → D:\\Python\\python.exe -m omo.rpc',
       'engine: 未找到可用的引擎启动方式：请设置 OMO_ENGINE_CMD 或安装 uv',
     ].join('\n')
-    const text = describeEngineFailure(stderr)
+    // 显式钉住平台：先前这里依赖宿主平台，在 Linux CI 上断言 .ps1 直接失败。
+    const text = describeEngineFailure(stderr, 'win32')
     expect(text).toContain('未找到可用的引擎启动方式')
     expect(text).toContain('setup-engine.ps1')
+    // 后端那行必须排在通用指引之前（先给具体原因）
+    expect(text.indexOf('未找到可用的引擎启动方式')).toBeLessThan(
+      text.indexOf('未找到可用的仿真引擎'),
+    )
   })
 
   it('没有引擎相关行时附上 stderr 尾部供排障', () => {
-    const text = describeEngineFailure('something else went wrong')
+    const text = describeEngineFailure('something else went wrong', 'win32')
     expect(text).toContain('后端输出（尾部）')
     expect(text).toContain('something else went wrong')
   })
 
   it('stderr 为空时也能给出指引', () => {
-    const text = describeEngineFailure('   ')
+    const text = describeEngineFailure('   ', 'win32')
     expect(text).toContain('未找到可用的仿真引擎')
     expect(text).toContain('（无）')
   })

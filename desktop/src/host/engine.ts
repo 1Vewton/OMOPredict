@@ -95,10 +95,12 @@ export function quoteIfNeeded(path: string): string {
  * 真正的"友好错误对话框"由 T7 的 Electron 壳用它渲染。
  */
 export function engineSetupGuidance(platform: NodeJS.Platform = process.platform): string {
+  // 只承诺真实存在的入口：目前只随包发了 scripts/setup-engine.ps1，
+  // 非 Windows 直接给等价的手工命令（同样是 uv sync / pip install -e），不要指向不存在的 .sh。
   const installHint =
     platform === 'win32'
-      ? '请任选其一：\n  1) 使用「完整包」（已内置引擎，无需另装 Python）；\n  2) 安装 uv（推荐，https://docs.astral.sh/uv/）后运行 setup-engine.ps1；\n  3) 安装 Python 3.12+ 后运行 setup-engine.ps1。'
-      : '请任选其一：\n  1) 使用内置引擎的完整包；\n  2) 安装 uv（推荐）后运行 setup-engine.sh；\n  3) 安装 Python 3.12+ 后运行 setup-engine.sh。'
+      ? '请任选其一：\n  1) 使用「完整包」（已内置引擎，无需另装 Python）；\n  2) 安装 uv（推荐，https://docs.astral.sh/uv/）后运行 scripts/setup-engine.ps1；\n  3) 安装 Python 3.12+ 后运行 scripts/setup-engine.ps1。'
+      : '请任选其一：\n  1) 使用内置引擎的完整包；\n  2) 安装 uv（推荐，https://docs.astral.sh/uv/）后在 engine 目录运行 `uv sync`；\n  3) 安装 Python 3.12+ 后运行 `python -m pip install -e engine`。'
   return `未找到可用的仿真引擎，应用无法开始计算。\n\n${installHint}\n\n高级用法：设置环境变量 OMO_ENGINE_CMD 指向引擎启动命令（如 "python -m omo.rpc"）。`
 }
 
@@ -107,15 +109,21 @@ export function engineSetupGuidance(platform: NodeJS.Platform = process.platform
  *
  * Go 侧在解析失败时会打印可操作的指引（见 `engine_resolve.go`），因此这里优先展示它，
  * 再附上通用指引——用户看到的应该是"装什么"，而不是一句 exit code。
+ *
+ * `platform` 可显式传入：这不仅方便单测，也让"在 Windows 上生成给 Linux 用户的说明"
+ * 这类场景成为可能（指引文本里的脚本名随平台不同）。
  */
-export function describeEngineFailure(stderrTail: string): string {
+export function describeEngineFailure(
+  stderrTail: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
   const tail = stderrTail.trim()
   const engineLine = tail
     .split(/\r?\n/)
     .reverse()
     .find((l) => l.includes('engine:') || l.includes('引擎'))
   if (engineLine) {
-    return `${engineLine.trim()}\n\n${engineSetupGuidance()}`
+    return `${engineLine.trim()}\n\n${engineSetupGuidance(platform)}`
   }
-  return `${engineSetupGuidance()}\n\n后端输出（尾部）：\n${tail || '（无）'}`
+  return `${engineSetupGuidance(platform)}\n\n后端输出（尾部）：\n${tail || '（无）'}`
 }
