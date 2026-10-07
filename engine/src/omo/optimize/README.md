@@ -1,5 +1,7 @@
 # omo.optimize —— 目标反推与工艺指导（M5 v1）
 
+> **中文** · [English version](README.en.md)
+
 ## 职责
 
 给定**性能目标**（可见光平均透过率 / 方阻 / 屏蔽效能的硬约束），在

@@ -1,5 +1,7 @@
 # desktop —— 桌面壳（Electron）
 
+> **中文** · [English version](README.en.md)
+
 > 设计见 [`docs/desktop.md`](../docs/desktop.md)；本目录当前实现 **T6（Host 层）**。
 
 ## 状态

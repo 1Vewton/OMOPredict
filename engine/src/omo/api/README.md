@@ -1,5 +1,7 @@
 # omo.api —— FastAPI 服务（M3 已实现，供 Go 中间层调用）
 
+> **中文** · [English version](README.en.md)
+
 ## 职责
 
 把物理引擎封装成 HTTP 服务，供 Go 中间层调用（见 AGENTS.md 架构图）：

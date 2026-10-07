@@ -1,5 +1,7 @@
 # API 设计与数据契约（docs/api）
 
+> **中文** · [English version](README.en.md)
+
 OMOPredict 三层架构的接口契约文档：
 
 ```

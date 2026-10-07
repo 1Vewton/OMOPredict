@@ -1,5 +1,7 @@
 # stdio JSON-RPC 契约（桌面版：Electron ↔ Go 中间层）
 
+> **中文** · [English version](rpc.en.md)
+
 > 适用形态：桌面版（docs/desktop.md D11）。Web 部署仍用 HTTP（见 [`rest.md`](rest.md)）。
 > 实现：`server/internal/rpc/`；启动：`omopredict --stdio`（需 `OMO_AUTH_MODE=none`）。
 

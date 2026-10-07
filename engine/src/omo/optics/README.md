@@ -1,5 +1,7 @@
 # omo.optics —— 光学仿真（M1 已实现）
 
+> **中文** · [English version](README.en.md)
+
 ## 职责
 
 计算 OMO 多层膜系的光学性能：

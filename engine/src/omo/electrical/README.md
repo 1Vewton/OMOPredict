@@ -1,5 +1,7 @@
 # omo.electrical —— 电学仿真（M1 已实现）
 
+> **中文** · [English version](README.en.md)
+
 ## 职责
 
 计算多层膜的电学性能：

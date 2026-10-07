@@ -1,3 +1,5 @@
+Language: Chinese. English version: README.en.txt
+
 OMOPredict {{VERSION}} - 轻量包（Windows x64）
 =================================================
 

@@ -1,5 +1,7 @@
 # 文献对标数据集（docs/benchmarks/）
 
+> **中文** · [English version](README.en.md)
+
 每个 JSON 文件对应一篇（或多篇同体系）论文的实测数据。命名：`体系_作者年份.json`。
 
 ## Schema 总览

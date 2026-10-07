@@ -1,5 +1,7 @@
 # 引擎契约（Go → Python `omo.api` / `omo.rpc`）
 
+> **中文** · [English version](engine.en.md)
+
 Go 中间层调用 Python 仿真引擎，执行膜结构仿真与目标反推。**两种传输，同一载荷**：
 
 | 传输 | 端点/方法 | 何时用 | 实现 |

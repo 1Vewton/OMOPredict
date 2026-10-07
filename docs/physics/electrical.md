@@ -1,5 +1,7 @@
 # 电学模型（omo.electrical）
 
+> **中文** · [English version](electrical.en.md)
+
 > 状态：M1 已实现（`engine/src/omo/electrical/sheet_resistance.py`、`materials.py`）。
 > 本文档与代码同步维护（AGENTS.md 守则第 10 条）。
 

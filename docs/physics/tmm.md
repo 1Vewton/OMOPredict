@@ -1,5 +1,7 @@
 # TMM 光学模型（omo.optics）
 
+> **中文** · [English version](tmm.en.md)
+
 > 状态：M1 已实现（`engine/src/omo/optics/transfer_matrix.py`、`drude.py`）。
 > 本文档与代码同步维护（AGENTS.md 守则第 10 条）。
 

@@ -1,5 +1,7 @@
 # OMOPredict 桌面版本设计（Design Doc）
 
+> **中文** · [English version](desktop.en.md)
+
 > 状态：**待评审（第 3 稿）** — 已落定：**Electron 壳** + **单用户（无用户管理）** + **无网络传输（IPC/stdio）** + **Go 保留为任务管理层** + **双分发形态**
 > 目标里程碑：M6 扩展（本地分发形态）
 > 关联约定：AGENTS.md §2（三层架构）、§6.6（分层纪律：物理逻辑只在 Python 层）、

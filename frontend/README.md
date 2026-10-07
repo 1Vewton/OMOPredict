@@ -1,5 +1,7 @@
 # OMOPredict Frontend（M4 完成；M5 v2 增「目标反推」页）
 
+> **中文** · [English version](README.en.md)
+
 Vue 3 + TypeScript + Vite 前端：参数设计 → 提交仿真任务 → 结果可视化（ECharts）。
 
 ## 技术栈

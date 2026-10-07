@@ -1,5 +1,7 @@
 # 模型校准报告（M2.3）
 
+> **中文** · [English version](calibration.en.md)
+
 > 数据：`docs/benchmarks/` 三篇文献数据集（Voronin 2025 / Isiyaku 2020 / Lim 2020）。
 > 复现：`omo.benchmark.calibrate`（灵敏度分析 → L-BFGS-B 拟合 → 留出法验证）。
 

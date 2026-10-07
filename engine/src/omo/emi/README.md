@@ -1,5 +1,7 @@
 # omo.emi —— 电磁屏蔽效能仿真（M1 已实现）
 
+> **中文** · [English version](README.en.md)
+
 ## 职责
 
 计算多层膜的电磁屏蔽效能（EMI SE，dB）：

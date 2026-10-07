@@ -1,5 +1,7 @@
 # 对外 REST API（Go 中间层）
 
+> **中文** · [English version](rest.en.md)
+
 服务入口：`server/cmd/omopredict`，默认监听 `:8080`（`OMO_SERVER_ADDR` 可改）。
 
 ## 健康检查

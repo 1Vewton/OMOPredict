@@ -1,5 +1,7 @@
 # omo.benchmark —— 文献对标与误差评估（M2 完成）
 
+> **中文** · [English version](README.en.md)
+
 ## 职责
 
 用高水平论文实测数据校验仿真结果（本项目差异化目标的核心）：

@@ -1,5 +1,7 @@
 # omo.cli —— 命令行入口（omo-cli）
 
+> **中文** · [English version](README.en.md)
+
 ## 职责
 
 脚本化仿真与对标：无需前端即可批量跑仿真、生成对标报告。

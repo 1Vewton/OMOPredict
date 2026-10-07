@@ -1,5 +1,7 @@
 # server —— Go 中间层（M3 完成；M5 v2 增 optimize；M6-a 增单用户模式与 stdio RPC）
 
+> **中文** · [English version](README.en.md)
+
 用户管理（或单用户本地模式）/ 数据持久化 / 仿真任务编排，对外提供 REST API 与 stdio JSON-RPC。
 
 ## 结构（Go 标准布局）

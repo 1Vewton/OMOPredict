@@ -1,5 +1,7 @@
 # scripts —— 构建与运维脚本
 
+> **中文** · [English version](README.en.md)
+
 > 设计见 [`docs/desktop.md`](../docs/desktop.md) §6/§7；T8 交付 `setup-engine.ps1` 与 `build-lite.ps1`，
 > T9 交付 `build-desktop.ps1` 与 `rpc-cli.ps1`。
 
