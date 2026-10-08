@@ -246,6 +246,9 @@ docs/omopredict-*.pdf
 .scratch/
 docs/research/
 
+# 桌面壳冒烟自检的本地暂存目录（内含构建出的 .exe，勿入库）
+.smoke/
+
 # Go 中间层本地产物
 server/*.db
 
