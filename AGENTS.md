@@ -61,7 +61,8 @@ Web 形态（现行默认）
 > （`server/internal/task/engine_resolve.go`）；前端 `activeTransport()` 依 `window.omo` 自动选 IPC/HTTP。
 > 全程**不监听任何端口**（已实测满足 docs/desktop.md §10.6）。
 > 仍未做：**T9 剩余 + T10–T11**（`start-local.ps1`、Release 上传与 SHA256、CI 完整包 job、文档收尾、**净机验收**——
-> 其中"壳真的能启动并渲染"与 electron-builder 实跑必须由 T11 在装上 Electron 二进制的机器上验证）。
+> 其中"壳真的能启动并渲染"与 electron-builder 实跑必须由 T11 在**沙箱外**验证——二进制已就位，
+> 卡点是沙箱起不了 Chromium，见 HANDOVER §6.31）。
 > ✅ **体积门禁已决（2026-09）**：轻量包保留内嵌 Electron 运行时，整包上限由 50MB **放宽到 150MB**，
 > 并新增 **app payload ≤50MB** 紧门禁负责防可选依赖泄漏（详见 `docs/desktop.md` §7）。
 
@@ -216,10 +217,15 @@ OMOPredict/
 > + `pnpm test`（**12 文件 150 用例**，另有 3 个需环境变量门控的真实端到端集成用例，已实跑通过）；
 > `scripts/` 四个脚本本机实跑过。API 契约见 `docs/api/`（rest / engine / rpc）。
 >
-> ⚠️ **"壳真的能启动并渲染"仍未验证**：本环境装不了 Electron 二进制，属 **T11 净机验收**；
-> `electron-builder` 同样从未实跑（依赖该二进制），所以**最终产物形态**也属 T11。
+> ⚠️ **"壳真的能启动并渲染"仍未验证**（2026-10 复核）：Electron 二进制**已装好**，但**DSH 沙箱里
+> Chromium 起不来**（最小 Electron 程序都在 `app.whenReady()` 前崩；证据见 HANDOVER §6.31），
+> 所以必须**在沙箱外**跑一次冒烟：`cd desktop; $env:OMO_DESKTOP_SMOKE_MS='45000'; pnpm exec electron .`
+> （先清 `ELECTRON_RUN_AS_NODE`，见 HANDOVER §6.32），属 **T11 净机验收**；
+> `electron-builder` 同样从未实跑，所以**最终产物形态**也属 T11。
 > ✅ **体积门禁已决（2026-09）**：轻量包保留内嵌 Electron（整包放宽到 150MB，另加 app payload ≤50MB 紧门禁）；
 > 引擎目录按实测（PyInstaller onedir 165.6MB）放宽到 250MB。详见 `docs/desktop.md` §7。
+> ⚠️ **本工作区有多会话并发**：另一个 agent 会用 `git add -A` 式提交（曾把我的未提交改动卷进它的提交），
+> 所以改完要**尽快显式列路径提交**，不要用 `git add -A`（见 HANDOVER §6.34）。
 > **下一步 T9 剩余**：`start-local.ps1`、Release 上传 + SHA256 清单、CI 完整包 job；随后 T10 文档收尾、T11 净机验收。
 
 ---
@@ -317,7 +323,9 @@ cd desktop && pnpm build                  # main→ESM / preload→CJS（沙箱�
 cd desktop && pnpm test                   # vitest（node；用例会真拉起子进程）
 # 真实端到端集成测试默认跳过，需显式给出后端与引擎（详见 desktop/README.md）：
 #   OMO_BACKEND_EXE=<omopredict.exe> OMO_ENGINE_CMD='python -m omo.rpc' pnpm vitest run src/host/integration.test.ts
-# 启动壳（需 Electron 二进制；本环境尚未下载，见 docs/desktop.md §13）：pnpm exec electron dist/main.js
+# 启动壳 / 冒烟自检（Electron 二进制已装；沙箱内起不来，须在沙箱外跑，见 HANDOVER §6.31）
+cd desktop && Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue   # 必须先清，见 §6.32
+cd desktop && $env:OMO_DESKTOP_SMOKE_MS='45000'; pnpm exec electron .              # 0=渲染成功 1=失败
 
 # 打包与运维脚本（T8/T9；Windows 优先，但已写成可跨平台）
 powershell -ExecutionPolicy Bypass -File scripts\setup-engine.ps1              # 轻量包用户准备引擎

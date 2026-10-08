@@ -15,10 +15,31 @@
 **Host 层与壳逻辑都刻意不依赖 Electron**（`src/host/`、`src/shell/` 是纯 Node 模块），因此绝大部分
 代码能在无 GUI 环境下单测；只有 `src/main.ts` / `src/preload.ts` 是 Electron 接线。
 
-> ⚠️ **壳未实际启动过**：本环境无法下载 Electron 二进制（约 100MB+，拉包速率过低），
-> 所以"窗口能打开、`app://` 能渲染 `frontend/dist`、CSP 没误伤 Vue/ECharts 的行内样式"
-> 这三件事**一次都没跑过** —— 属 docs/desktop.md §10 的 **T11 净机验收**。
-> `electron` 目前只作为**类型来源**安装（`ELECTRON_SKIP_BINARY_DOWNLOAD=1`）。
+> ⚠️ **壳仍未实际启动过**（2026-10 复核）：Electron 二进制**已装好**（44.4.5，`dist` 约 367MB），
+> 但 **DSH 沙箱里 Electron 的浏览器进程起不来**——连 30 行的最小 Electron 程序都在 `app.whenReady()`
+> 之前崩（默认 `0x80000003`；加 `--no-sandbox` 后 `0xC0000005`；各种 GPU/进程开关都无效）。
+> 因此"窗口能打开、`app://` 能渲染 `frontend/dist`、CSP 没误伤 Vue/ECharts 的行内样式、
+> preload 成功注入 `window.omo`"这几件事**仍未跑过** —— 属 docs/desktop.md §10 的 **T11 净机验收**。
+
+## 冒烟自检（一条命令判定壳能不能跑）
+
+壳里内置了冒烟钩子（`OMO_DESKTOP_SMOKE_MS`，见 `src/main.ts` 的 `attachSmokeHooks`）：
+渲染进程加载成功 → 打印 `[smoke] OK` 并退出 **0**；加载失败/超时 → 打印原因并退出 **1**，
+同时把渲染进程的 console 转发到主进程 stdout（CSP 拦截、preload 注入失败都以 console 报错的形式出现）。
+
+```powershell
+cd desktop
+pnpm build                                                  # main→ESM / preload→CJS
+Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue   # ⚠️ 见下
+$env:OMO_BACKEND_EXE = "<仓库>\server\omopredict.exe"        # 先 go build 出后端
+$env:OMO_DESKTOP_SMOKE_MS = '45000'
+pnpm exec electron .
+```
+
+> ⚠️ **必须先清掉 `ELECTRON_RUN_AS_NODE`**：该变量存在时 `electron.exe` 会当纯 Node 跑
+> （`electron --version` 打印的是 Node 版本，`require('electron')` 拿不到 `app`），报错极难懂。
+> 判定真实版本请看 `node_modules/electron/dist/version`，不要信 `--version`。
+> 下载二进制用**默认源**（`npmmirror` 在本机超时不可达）：`node node_modules/electron/install.js`。
 
 ## 结构
 

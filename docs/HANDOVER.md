@@ -113,7 +113,10 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
 - `test/fixtures/fake-backend.mjs`：真子进程假后端；`src/host/integration.test.ts` 是环境变量门控的真实端到端测试
   （`OMO_BACKEND_EXE` + `OMO_ENGINE_CMD`，受限环境再加 `OMO_INTEGRATION_DIR`），
   其中第二个用例覆盖**渲染进程可见链路**（`window.omo.rpc` → IPC 信封 → 真实后端）。
-- ⚠️ **壳未实际启动过**：本环境无法下载 Electron 二进制，窗口/`app://` 渲染/CSP 是否误伤均未实测，属 T11。
+- ⚠️ **壳仍未实际启动过**（2026-10 复核）：Electron 二进制**已经装上了**（见 §6.31），但
+  **DSH 沙箱里 Electron 的浏览器进程起不来**（连 30 行的最小 Electron 程序都在 `app.whenReady()`
+  之前崩），所以窗口/`app://` 渲染/CSP 是否误伤/`window.omo` 注入这几件事**依然一次都没跑过**，属 T11。
+  已加了**冒烟自检钩子**（`OMO_DESKTOP_SMOKE_MS`）让这件事在沙箱外一条命令可判定，见 §6.31。
 
 ## 5. 文档索引
 
@@ -232,6 +235,35 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
     并自己给含空格的参数加引号。同理，`add_OutputDataReceived` 这类事件式读取不如
     `$process.StandardOutput.ReadLineAsync()` + `Task.Wait(ms)`、`StandardError.ReadToEndAsync()` 可靠
     （stderr 要**并发**抽干，否则管道写满会把子进程卡死）。
+31. **⚠️ Electron 无法在 DSH 沙箱中启动（2026-10 实测，**不是本项目的 bug**）**：此前记录"本环境装不了
+    Electron 二进制"是**错的**——二进制能正常下载（见 §6.32），真正的障碍是**沙箱里 Chromium 起不来**：
+    - 默认启动：`0x80000003`（STATUS_BREAKPOINT / 退出码 -2147483645），**完全没有输出**。
+    - 加 `--no-sandbox`：能进到主进程 JS（打印出 `[mini] main script loaded`），随后 `0xC0000005`
+      （ACCESS_VIOLATION / -1073741819），**死在 `app.whenReady()` 之前**。
+    - 试过 `--disable-gpu` / `--disable-gpu-sandbox` / `--disable-software-rasterizer` /
+      `--use-angle=swiftshader` / `--in-process-gpu` / `--single-process` / `--no-zygote`
+      ——**全都一样崩**。即连 30 行的最小 Electron 程序都起不来，与我们的代码无关。
+    - 唯一能过的是 `electron --version --no-sandbox`（那条路径在 Chromium 初始化前就退出了）。
+    → **结论**：壳的运行期验收（T11）必须在**沙箱外**做。二进制已装好，一条命令即可判定：
+      `cd desktop; $env:OMO_DESKTOP_SMOKE_MS='45000'; $env:OMO_BACKEND_EXE='<后端 exe>'; pnpm exec electron .`
+      成功会打印 `[smoke] OK: renderer loaded app://omo/index.html` 并以 **0** 退出；
+      加载失败/超时则打印原因并以 **1** 退出（钩子见 `desktop/src/main.ts` 的 `attachSmokeHooks`）。
+32. **⚠️ `ELECTRON_RUN_AS_NODE=1` 已预设在本会话环境里（2026-10 实测）**：进程环境里有这个变量时，
+    `electron.exe` 会**当成纯 Node 运行**——`electron --version` 打印的是 **Node 版本**（如 `v24.21.0`）
+    而不是 Electron 版本，且 `require('electron')` 拿不到 `app`/`BrowserWindow`，报错会非常难懂。
+    → 启动壳之前先 `Remove-Item Env:ELECTRON_RUN_AS_NODE`。判定真实版本看
+    `node_modules/electron/dist/version` 或 exe 的 VersionInfo（应为 `44.4.5`），别信 `--version`。
+33. **⚠️ 下载 Electron / 走镜像的取舍（2026-10 实测）**：`npmmirror.com` 在本机**超时不可达**
+    （设计文档 §7 建议的 `ELECTRON_MIRROR` 反而会让 `install.js` 直接 `fetch failed`）；
+    而 `github.com` 正常，用**默认源**下载 `electron-v44.4.5-win32-x64.zip`（约 115MB）成功、
+    解包后 `dist` 约 **367MB**，耗时约 5 分钟。所以"拉不动"的结论要按**源**分别试，不要一概而论。
+    另注：`%LOCALAPPDATA%\electron\Cache` 是**全局共享**的，里面可能有别的项目的 zip（见过 v35.7.5），
+    不要据此判断"我们的版本已经下载好了"。
+34. **⚠️ 多会话共用一个工作区，提交会互相"扫走"（2026-10 实测）**：本仓库同时被另一个 agent 会话操作，
+    它用类似 `git add -A` 的方式提交（`06de9d8 docs: make the English README the primary one` 里
+    **混进了我当时未提交的 `main.ts` 冒烟钩子 +35 行**）。因此：**改完就尽快单独提交自己的文件**，
+    且提交时**显式列出路径**，不要 `git add -A`，否则会把别人未完成的改动卷进自己的提交。
+    另外它把 `.smoke/` 加进了 `.gitignore`（`0c2c063`）——这个忽略项**建议保留**（见 §6.31 的冒烟用法）。
 
 ## 7. 未完成事项与后续计划
 
@@ -360,13 +392,15 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
   产物中 `torch`/`fastapi`/`uvicorn`/`matplotlib` **均 0 条目**、sidecar 又能算对结果，
   说明这是 numpy/scipy 的固有开销而不是依赖泄漏。
 - ⏳ **T9 剩余**：`start-local.ps1`（HTTP 模式无壳调试 + 开浏览器）、Release 上传与 SHA256 清单、
-  CI 补齐"完整包 job"（需 Electron 二进制，本环境拉不动）。
+  CI 补齐"完整包 job"（需 Electron 二进制；**二进制现已就位**，卡点是沙箱起不了 Chromium，见 §6.31）。
 
 **M6-d T10–T11 —— ⏳ 待做**：文档收尾、净机验收。
-> ⚠️ **T11 必须验证的第一件事**：装上 Electron 二进制后**壳能否真的启动并渲染**
+> ⚠️ **T11 必须验证的第一件事**：**壳能否真的启动并渲染**
 > （窗口、`app://` 加载 `frontend/dist`、CSP 是否误伤 Vue/ECharts 的行内样式、preload 是否成功注入 `window.omo`）。
-> 本环境装不了 Electron 二进制（约 100MB+，拉包速率过低），因此这几件事**一次都没跑过**。
-> 补充：**`electron-builder` 也从未实跑过**（同样依赖该二进制），所以"完整包/轻量包的最终产物形态"仍属 T11；
+> 2026-10 复核：**二进制不再是障碍**（已装好 Electron 44.4.5），障碍变成"DSH 沙箱里 Chromium 起不来"——
+> 最小 Electron 程序都会在 `app.whenReady()` 之前崩（证据与两个退出码见 §6.31），因此这几件事**仍未跑过**。
+> 请在**沙箱外**（普通终端）用一行命令判定：`OMO_DESKTOP_SMOKE_MS=45000 pnpm exec electron .`（见 §6.31）。
+> 补充：**`electron-builder` 也从未实跑过**，所以"完整包/轻量包的最终产物形态"仍属 T11；
 > 目前只验到了它的**输入**（壳 TS、Go 后端、PyInstaller sidecar）与布局契约。
 > 注意 stdio 传输下 **stdout 只能是协议流**（引擎与 Go 的日志都必须在 stderr，见 §6.15）。
 

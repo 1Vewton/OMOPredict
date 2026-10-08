@@ -15,10 +15,36 @@
 **Both the Host layer and the shell logic deliberately do not depend on Electron** (`src/host/` and `src/shell/` are pure Node modules), so the vast majority of the
 code can be unit-tested in a GUI-less environment; only `src/main.ts` / `src/preload.ts` are Electron wiring.
 
-> ⚠️ **The shell has never actually been launched**: this environment cannot download the Electron binary (about 100MB+, with too low a package-fetch rate),
-> so "the window can open, `app://` can render `frontend/dist`, and CSP does not accidentally break Vue/ECharts inline styles" —
-> these three things have **not been run even once** — they belong to the **T11 clean-machine acceptance** in docs/desktop.md §10.
-> `electron` is currently installed only as a **type source** (`ELECTRON_SKIP_BINARY_DOWNLOAD=1`).
+> ⚠️ **The shell still has not actually been launched** (rechecked 2026-10): the Electron binary **is
+> now installed** (44.4.5, `dist` about 367MB), but **Electron's browser process cannot start inside the
+> DSH sandbox** — even a 30-line minimal Electron app crashes before `app.whenReady()`
+> (`0x80000003` by default; `0xC0000005` with `--no-sandbox`; every GPU/process flag tried made no difference).
+> So "the window can open, `app://` can render `frontend/dist`, CSP does not accidentally break
+> Vue/ECharts inline styles, and preload injects `window.omo`" have **still not been run** —
+> they belong to the **T11 clean-machine acceptance** in docs/desktop.md §10.
+
+## Smoke check (one command to decide whether the shell runs)
+
+The shell has a built-in smoke hook (`OMO_DESKTOP_SMOKE_MS`, see `attachSmokeHooks` in `src/main.ts`):
+if the renderer loads it prints `[smoke] OK` and exits **0**; on load failure or timeout it prints the
+reason and exits **1**, forwarding the renderer console to the main-process stdout (CSP blocks and
+preload-injection failures show up as console errors).
+
+```powershell
+cd desktop
+pnpm build                                                  # main -> ESM / preload -> CJS
+Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue   # see warning below
+$env:OMO_BACKEND_EXE = "<repo>\server\omopredict.exe"        # build it first with go build
+$env:OMO_DESKTOP_SMOKE_MS = '45000'
+pnpm exec electron .
+```
+
+> ⚠️ **You must clear `ELECTRON_RUN_AS_NODE` first**: when that variable is set, `electron.exe` behaves
+> as plain Node (`electron --version` prints the *Node* version and `require('electron')` has no `app`),
+> and the resulting errors are very hard to read. To check the real version, read
+> `node_modules/electron/dist/version`, not `--version`.
+> Download the binary from the **default source** (`npmmirror` times out on this machine):
+> `node node_modules/electron/install.js`.
 
 ## Structure
 
