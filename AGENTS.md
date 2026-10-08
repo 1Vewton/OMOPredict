@@ -122,7 +122,8 @@ Web 形态（现行默认）
 ```
 OMOPredict/
 ├── AGENTS.md                  # 本文档（AI 代理入口）
-├── README.md                  # 项目总览（用户视角）
+├── README.md                  # 项目总览（英文，主入口；GitHub 默认渲染）
+├── README.zh.md               # 项目总览（中文）
 ├── LICENSE
 ├── .gitignore
 ├── docs/

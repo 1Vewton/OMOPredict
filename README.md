@@ -1,165 +1,171 @@
 # OMOPredict
 
-> **中文** · [English version](README.en.md)
+> **English** · [中文版](README.zh.md)
 
-聚焦 **OMO（Oxide-Metal-Oxide）纳米多层薄膜体系** 的轻量化仿真与设计软件，
-面向大学生科研与课程设计：输入各层厚度 / 折射率 / 电阻率，输出**光学透过率、
-方阻、电磁屏蔽效能**，并**对标高水平论文实测数据**，用于性能预测与工艺优化指导。
+A lightweight simulation and design tool focused on **OMO (oxide-metal-oxide) nanolaminate thin-film systems**,
+aimed at undergraduate research and course design: input the thickness / refractive index / resistivity of each layer,
+output **optical transmittance, sheet resistance and electromagnetic shielding effectiveness**, and **benchmark against
+measured data from high-level papers**, for performance prediction and process-optimization guidance.
 
-> ⚠️ 本项目有明确的**模型边界与适用范围**，详见 [局限性与适用范围](#局限性与适用范围limitations)。
+> ⚠️ This project has explicit **model boundaries and scope of applicability**; see [Limitations and scope of applicability](#limitations-and-scope-of-applicability-limitations) for details.
 
-## 三层架构
+## Three-layer architecture
 
 ```
-┌────────────┐  REST/JSON   ┌──────────────┐   HTTP/stdio   ┌──────────────────┐
-│  Vue3+TS   │ ────────────▶ │     Go       │ ─────────────▶ │  Python (引擎)   │
-│  前端 UI   │ ◀──────────── │ 任务/存储/编排│ ◀───────────── │  TMM/方阻/屏蔽    │
-└────────────┘               └──────────────┘                └──────────────────┘
+┌──────────────────┐  REST/JSON  ┌──────────────────┐  HTTP/stdio  ┌──────────────────┐
+│  Vue 3 + TS      │ ──────────▶ │  Go              │ ───────────▶ │ Python (engine)  │
+│  Frontend UI     │ ◀────────── │  Tasks/storage   │ ◀─────────── │ TMM/Rs/shielding │
+│                  │             │  /orchestration  │              │                  │
+└──────────────────┘             └──────────────────┘              └──────────────────┘
 ```
 
-| 层 | 技术 | 目录 | 职责 |
+| Layer | Technology | Directory | Responsibility |
 |---|---|---|---|
-| 数据科学层 | Python（numpy/scipy/torch） | `engine/` | TMM 光学、方阻、屏蔽、文献对标、NN 代理、目标反推 |
-| 中间层 | Go（GORM） | `server/` | 用户/JWT、SQLite/MySQL/PostgreSQL、任务编排（含单用户模式与 stdio JSON-RPC） |
-| 前端 | Vue 3 + TypeScript | `frontend/` | 参数设计、目标反推、结果图表、任务历史 |
-| 桌面壳 | Electron + TypeScript | `desktop/` | 本地单用户形态：拉起/守护 Go 中间层与引擎（Host 层已完成，Electron 壳待做） |
+| Data-science layer | Python (numpy/scipy/torch) | `engine/` | TMM optics, sheet resistance, shielding, literature benchmarking, NN surrogate, inverse design |
+| Middleware layer | Go (GORM) | `server/` | users/JWT, SQLite/MySQL/PostgreSQL, task orchestration (including single-user mode and stdio JSON-RPC) |
+| Frontend | Vue 3 + TypeScript | `frontend/` | parameter design, inverse design, result charts, task history |
+| Desktop shell | Electron + TypeScript | `desktop/` | local single-user form: launch/guard the Go middleware and the engine (Host layer done, Electron shell still to do) |
 
-## 功能状态（里程碑）
+## Feature status (milestones)
 
-- ✅ M0 脚手架 + CI（Python ruff/pytest + Go fmt/vet/build/test + 前端 lint/build）
-- ✅ M1 物理引擎：TMM + Drude、并联方阻 + Fuchs–Sondheimer、传输线屏蔽
-- ✅ M2 文献对标：3 篇真实数据集 + 校准闭环（灵敏度分析 → 拟合 → 留出验证）
-- ✅ M2.5 NN 代理模型：20k 训练，T/Rs/SE 精度 <0.1%（相对物理引擎）
-- ✅ M3 Go 中间层：JWT 认证 + GORM 多库 + 任务编排（Go→Python 端到端打通）
-- ✅ M4 Vue 前端：登录/注册、膜层参数设计、ECharts 结果图表、任务历史
-- ✅ M5 v1 目标反推（引擎层）：约束 → 网格扫描 → 候选 + FoM 排序 + 灵敏度/工艺窗口（`omo-cli optimize`）
-- ✅ M5 v2 反推打通：引擎 `POST /optimize` + Go `kind=optimize` 任务 + 前端「目标反推」页
-- ✅ M6-a T1–T4（桌面版基础，见 `docs/desktop.md`）：单用户模式 + `/api/meta`、任务删除、
-  Go 侧 stdio JSON-RPC 传输、引擎侧中立编排层 `omo.sim` + `omo.rpc` 入口
-- ✅ T4.5 **Go→引擎 stdio 传输**：Go 作为父进程拉起引擎（引擎发现 1–4 级），
-  桌面形态**全程不监听端口**（已实测），HTTP/stdio 载荷逐字段一致
-- ✅ T5 **前端传输抽象 + 能力门禁**：`window.omo` 存在则走 Electron IPC、否则 HTTP（载荷一致）；
-  启动拉 `meta` 后按 `auth_required` 决定是否要求登录（单用户模式顶栏显示「本地模式」）；历史页支持删除
-- ✅ T6 **桌面 Host 层**（`desktop/`）：数据目录/日志轮转/单实例锁/引擎来源探测/Go 子进程守护
-  （崩溃即在途请求失败、限速重启、超时回收进程树）+ stdio JSON-RPC 客户端
-- ✅ T7 **Electron 壳**：主进程（`app://` 协议、菜单、IPC）+ preload 白名单；壳逻辑与 Electron 解耦，
-  150 单测（含 app:// 目录穿越防护、CSP 无网络、IPC 信封）；**壳的启动与渲染尚未实跑**（属 T11 净机验收）
-- ✅ T8 **轻量包**（`scripts/`）：`setup-engine.ps1`（用户在自备 Python 上装引擎并 ping 验证，失败给可操作指引）
-  + `build-lite.ps1`（渲染产物 + Go 后端 + 引擎源码 → 体积门禁 → zip）
-- ✅ T9 大部分 **完整包与调试工具**：`build-desktop.ps1`（+ **PyInstaller 引擎 sidecar**，实测能算对结果且无
-  torch/fastapi 泄漏）+ `rpc-cli.ps1`（stdio 协议调试）+ 壳 TS 编译（main=ESM / preload=CJS）+ 体积门禁
-- ⏳ M5 剩余（报告导出、高级寻优、NN 代理加速）/ M6 剩余（T9 尾项 `start-local.ps1`/Release、T11 净机验收）
+- ✅ M0 scaffolding + CI (Python ruff/pytest + Go fmt/vet/build/test + frontend lint/build)
+- ✅ M1 physics engine: TMM + Drude, parallel sheet resistance + Fuchs–Sondheimer, transmission-line shielding
+- ✅ M2 literature benchmarking: 3 real datasets + calibration loop (sensitivity analysis → fitting → held-out validation)
+- ✅ M2.5 NN surrogate model: 20k training, T/Rs/SE accuracy <0.1% (relative to the physics engine)
+- ✅ M3 Go middleware: JWT authentication + GORM multiple databases + task orchestration (Go→Python end-to-end working)
+- ✅ M4 Vue frontend: login/registration, layer parameter design, ECharts result charts, task history
+- ✅ M5 v1 inverse design (engine layer): constraints → grid scan → candidates + FoM ranking + sensitivity/process window (`omo-cli optimize`)
+- ✅ M5 v2 inverse design end-to-end: engine `POST /optimize` + Go `kind=optimize` task + frontend "Inverse design" page
+- ✅ M6-a T1–T4 (desktop foundation, see `docs/desktop.md`): single-user mode + `/api/meta`, task deletion,
+  Go-side stdio JSON-RPC transport, engine-side neutral orchestration layer `omo.sim` + `omo.rpc` entry point
+- ✅ T4.5 **Go→engine stdio transport**: Go launches the engine as a child process (engine discovery levels 1–4);
+  the desktop form **listens on no port at all** (measured), and the HTTP/stdio payloads are field-for-field identical
+- ✅ T5 **frontend transport abstraction + capability gate**: if `window.omo` exists, Electron IPC is used, otherwise HTTP (identical payloads);
+  after fetching `meta` at startup it decides from `auth_required` whether to require login (in single-user mode the top bar shows "local mode" (本地模式)); the history page supports deletion
+- ✅ T6 **desktop Host layer** (`desktop/`): data directory/log rotation/single-instance lock/engine source discovery/Go child-process guard
+  (in-flight requests fail on a crash, rate-limited restart, process-tree reclamation on timeout) + stdio JSON-RPC client
+- ✅ T7 **Electron shell**: main process (`app://` protocol, menu, IPC) + preload allowlist; shell logic decoupled from Electron,
+  150 unit tests (including app:// directory-traversal protection, CSP with no network, IPC envelope); **the shell's startup and rendering have not yet been run for real** (belongs to T11 clean-machine acceptance)
+- ✅ T8 **lightweight package** (`scripts/`): `setup-engine.ps1` (the user installs the engine on their own Python and verifies it with a ping; on failure it gives actionable guidance)
+  + `build-lite.ps1` (render artefacts + Go backend + engine source → size gate → zip)
+- ✅ T9 mostly **full package and debugging tools**: `build-desktop.ps1` (+ **PyInstaller engine sidecar**, measured to compute correct results with no
+  torch/fastapi leakage) + `rpc-cli.ps1` (stdio protocol debugging) + shell TS compilation (main=ESM / preload=CJS) + size gate
+- ⏳ M5 remaining (report export, advanced optimization, NN surrogate acceleration) / M6 remaining (T9 tail items `start-local.ps1`/Release, T11 clean-machine acceptance)
 
-## 快速开始
+## Quick start
 
 ```bash
-# 数据科学层（物理引擎 API，默认 :8000）
-cd engine && uv sync --all-extras        # 首次：装齐依赖（基础仅 numpy/scipy，其余为 extras）
+# Data-science layer (physics engine API, default :8000)
+cd engine && uv sync --all-extras        # first time: install all dependencies (base is only numpy/scipy, the rest are extras)
 cd engine && uv run uvicorn omo.api.main:app --port 8000
 
-# 目标反推（引擎层 CLI，体验 M5 v1）
+# Inverse design (engine-layer CLI, try out M5 v1)
 cd engine && uv run omo-cli optimize --min-t 0.85 --max-rs 12 --min-se 25
 
-# 中间层（默认 :8080，读取 server/.env；OMO_ENGINE_URL 指向引擎）
+# Middleware (default :8080, reads server/.env; OMO_ENGINE_URL points at the engine)
 cd server && go run ./cmd/omopredict
 
-# 桌面形态（无端口，实验性）：Go 侧 stdio JSON-RPC + Go 拉起引擎走 stdio，不监听任何端口
-#   OMO_ENGINE_CMD 也可用引号包裹含空格的路径；不设则按 resources/engine → uv → python 自动发现
+# Desktop form (portless, experimental): Go-side stdio JSON-RPC + Go launches the engine over stdio, no port is listened on at all
+#   OMO_ENGINE_CMD can also be a quoted path containing spaces; if unset, it auto-discovers via resources/engine → uv → python
 cd server && OMO_AUTH_MODE=none OMO_ENGINE_TRANSPORT=stdio OMO_ENGINE_CMD='python -m omo.rpc' go run ./cmd/omopredict --stdio
 
-# 前端（默认 :5173，/api 代理到 Go :8080）
+# Frontend (default :5173, /api proxied to Go :8080)
 cd frontend && pnpm install && pnpm dev
 
-# 测试
-cd engine && uv run pytest                        # Python 全量测试
-cd server && go test ./...                        # Go 全量测试
-cd frontend && pnpm lint && pnpm test && pnpm build   # 前端 lint + 单测 + 构建
-cd desktop && pnpm type-check && pnpm test        # 桌面 Host 层与壳逻辑（含真子进程用例）
+# Tests
+cd engine && uv run pytest                        # full Python test suite
+cd server && go test ./...                        # full Go test suite
+cd frontend && pnpm lint && pnpm test && pnpm build   # frontend lint + unit tests + build
+cd desktop && pnpm type-check && pnpm test        # desktop Host layer and shell logic (including real child-process cases)
 
-# 打包（轻量包：用户自备 Python；完整包：内置引擎）
-powershell -ExecutionPolicy Bypass -File scripts\setup-engine.ps1   # 准备/验证引擎
-powershell -ExecutionPolicy Bypass -File scripts\build-lite.ps1     # 出轻量包
-powershell -ExecutionPolicy Bypass -File scripts\build-desktop.ps1  # 出完整包（含 PyInstaller 引擎）
-powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method ping   # 协议调试
+# Packaging (lightweight package: user supplies Python; full package: engine bundled)
+powershell -ExecutionPolicy Bypass -File scripts\setup-engine.ps1   # prepare/verify the engine
+powershell -ExecutionPolicy Bypass -File scripts\build-lite.ps1     # produce the lightweight package
+powershell -ExecutionPolicy Bypass -File scripts\build-desktop.ps1  # produce the full package (with PyInstaller engine)
+powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method ping   # protocol debugging
 ```
 
-详细启动/配置/接口见文档索引。桌面版已完成到 T8、T9 大部分（脚本与内置引擎已实跑）；
-**壳的启动与渲染、electron-builder 打包尚未实跑**，属 T11，详见 `docs/desktop.md` §13。
+For detailed startup/configuration/interfaces see the document index. The desktop version is complete through T8 and mostly through T9 (the scripts and the bundled engine have been run for real);
+**the shell's startup and rendering, and electron-builder packaging, have not yet been run for real**, which belongs to T11; see `docs/desktop.md` §13 for details.
 
-## 局限性与适用范围（Limitations）
+## Limitations and scope of applicability (Limitations)
 
-> 以下限制都是**已知的、有意保留的**（多数是物理模型边界，不是待修 bug）。使用前请先读本节。
+> The limitations below are all **known and deliberately retained** (most are physics-model boundaries, not bugs to be fixed). Please read this section before use.
 
-### 1. 物理模型与适用域
+### 1. Physics model and domain of applicability
 
-| 限制 | 说明 |
+| Limitation | Description |
 |---|---|
-| **超薄金属不计渗流** | Ag 薄膜 < ~10 nm 存在岛状生长/渗流，Fuchs–Sondheimer **连续膜假设失效**；留出验证集在该区间误差显著（标记为模型边界，未强行拟合） |
-| **校准参数是"有效参数"** | M2.3 拟合出 Ag ρ = 2.6e-8 Ω·m（触上界）、λ = 95 nm、ITO n = 2.1，反映**界面/晶界散射未建模**；它们是仿真有效值，**不是材料物性**，不应引用为物理常数 |
-| **无色散、无粗糙度、无界面扩散** | 氧化物用常数折射率（ITO n≈1.8）；TMM 假设理想平面、无散射（故 T + R + A = 1）；粗糙度、界面互扩散、结晶度、退火等工艺因素未建模 |
-| **材料白名单** | 引擎默认仅 `ITO / Ag / glass`（`engine/src/omo/materials.py`）；其它材料需扩展注册表，自由输入的材料名会被引擎拒绝 |
-| **屏蔽模型仅纳入导电层** | 传输线模型只对导电层求解（介电层电容/界面效应未计入）；薄膜近似下 SE 与频率近乎无关——**SE 曲线平坦是物理结果，不是 bug**（详见 `docs/physics/emi.md` §4.1） |
-| **无温度/磁场/各向异性** | 相对磁导率默认 1，无磁性材料与温度依赖模型，未考虑应力/弯折等柔性效应 |
-| **角度与偏振未对外** | Python 库支持入射角与 s/p 偏振，但 HTTP API 与前端固定**垂直入射 + 非偏振** |
-| **输出网格固定** | API 可传 `wavelengths_nm` / `freqs_ghz`，但前端固定用默认网格（380–1000 nm 步长 10、1–18 GHz 步长 1） |
+| **Ultra-thin metal ignores percolation** | Ag films < ~10 nm show island growth/percolation, and the Fuchs–Sondheimer **continuous-film assumption breaks down**; the held-out validation set has significant error in that range (marked as a model boundary, not force-fitted) |
+| **The calibrated parameters are "effective parameters"** | M2.3 fits Ag ρ = 2.6e-8 Ω·m (hits the upper bound), λ = 95 nm, ITO n = 2.1, reflecting **unmodelled interface/grain-boundary scattering**; they are effective values for simulation, **not material properties**, and should not be cited as physical constants |
+| **No dispersion, no roughness, no interface diffusion** | Oxides use a constant refractive index (ITO n≈1.8); TMM assumes ideally flat interfaces with no scattering (hence T + R + A = 1); processing factors such as roughness, interface interdiffusion, crystallinity and annealing are not modelled |
+| **Material allowlist** | The engine defaults to only `ITO / Ag / glass` (`engine/src/omo/materials.py`); other materials require extending the registry, and freely entered material names are rejected by the engine |
+| **The shielding model only includes conductive layers** | The transmission-line model is solved only for conductive layers (dielectric-layer capacitance/interface effects are not counted); under the thin-film approximation SE is nearly independent of frequency — **a flat SE curve is a physical result, not a bug** (see `docs/physics/emi.md` §4.1) |
+| **No temperature/magnetic field/anisotropy** | Relative permeability defaults to 1, there are no magnetic materials and no temperature-dependent model, and flexibility effects such as stress/bending are not considered |
+| **Angle and polarization are not exposed** | The Python library supports the angle of incidence and s/p polarization, but the HTTP API and the frontend are fixed to **normal incidence + unpolarized** |
+| **Fixed output grid** | The API can take `wavelengths_nm` / `freqs_ghz`, but the frontend always uses the default grid (380–1000 nm in steps of 10, 1–18 GHz in steps of 1) |
 
-### 2. 精度：能宣称什么、不能宣称什么
+### 2. Accuracy: what can and cannot be claimed
 
-- **对标数据规模小**：目前仅 **3 篇文献、约 9 个实测点**，且每篇对应**单一沉积工艺**
-  → 这些数字只代表被对标的体系与工艺，**不能外推为"全局精度"**。
-- **已验证范围的量级**（校准后）：WO₃₋ₓ/Ag/WO₃₋ₓ 一类体系透过率偏差约几个百分点、方阻约 7%；
-  **薄 Ag 区间与未对标体系不承诺精度**（属外推）。
-- **不提供不确定度**：只输出点预测，没有误差棒/置信区间；反推的"工艺窗口"是**确定性容差**，
-  不是工艺波动的统计分布。
-- **禁止无依据调常数**：物理常数与公式须有文献出处，不允许为"让结果更好看"而改常数（AGENTS.md §6.2）。
+- **The benchmarking dataset is small**: currently only **3 papers, about 9 measured points**, and each corresponds to a **single deposition process**
+  → these numbers represent only the benchmarked systems and processes, and **cannot be extrapolated into a "global accuracy"**.
+- **Order of magnitude of the validated range** (after calibration): for systems of the WO₃₋ₓ/Ag/WO₃₋ₓ kind the transmittance deviation is about a few percentage points and the sheet resistance about 7%;
+  **no accuracy is promised for the thin-Ag range or for unbenchmarked systems** (that is extrapolation).
+- **No uncertainty is provided**: only point predictions are output, with no error bars/confidence intervals; the inverse-design "process window" is a **deterministic tolerance**,
+  not a statistical distribution of process fluctuations.
+- **Tuning constants without justification is forbidden**: physical constants and formulas must have a literature source, and constants may not be changed in order to "make the results look better" (AGENTS.md §6.2).
 
-### 3. 目标反推与 NN 代理
+### 3. Inverse design and the NN surrogate
 
-- **仅支持固定三层 OMO**（默认 ITO/Ag/ITO；材料可在引擎配置中换成注册表内其它材料，前端未开放），
-  不支持任意层数/层序搜索。
-- **目标形态受限**：硬约束仅 `T_vis ≥ x`、`Rs ≤ y`、频带内最小 `SE ≥ z`；可行解一律按
-  **Haacke FoM = T¹⁰/Rs** 排序，不支持自定义目标函数或 Pareto 前沿展示。
-- **确定性网格扫描**：代价随维度指数增长（引擎硬上限 2×10⁶ 组合、前端提示上限 10⁵ 组合）；
-  默认 ~4k 组合约 3 秒（含 SE）。尚未接入梯度/遗传/贝叶斯优化，**也未接 NN 代理加速**（扫描为串行求值）。
-- **工艺窗口是"单层独立"口径**：固定其余层、单层 ±扰动求容差（探测步长 0.5 nm、上限 ±5 nm），
-  不等于多层联合容差。
-- **NN 代理域很窄**：v1 仅 ITO/Ag/ITO 三厚度输入（外层 20–80 nm、金属 5–20 nm），材料与衬底固定，
-  域外属外推；其精度以**物理引擎**为基准（不是实测文献），且模型产物需重新训练生成（已 gitignore）。
+- **Only a fixed three-layer OMO is supported** (default ITO/Ag/ITO; the materials can be swapped in the engine configuration for other materials in the registry, which the frontend does not expose),
+  and searching over an arbitrary number of layers/layer order is not supported.
+- **Objective forms are limited**: the hard constraints are only `T_vis ≥ x`, `Rs ≤ y` and the in-band minimum `SE ≥ z`; feasible candidates are always ranked by
+  **Haacke FoM = T¹⁰/Rs**, and custom objective functions or Pareto-front display are not supported.
+- **Deterministic grid scan**: the cost grows exponentially with the dimension (engine hard cap 2×10⁶ combinations, frontend advisory cap 10⁵ combinations);
+  the default ~4k combinations takes about 3 seconds (including SE). Gradient/genetic/Bayesian optimization is not yet integrated, and **neither is NN surrogate acceleration** (the scan evaluates serially).
+- **The process window uses a "single-layer independent" definition**: fix the other layers and perturb one layer by ± to find the tolerance (probe step 0.5 nm, cap ±5 nm);
+  it is not equal to a joint tolerance over multiple layers.
+- **The NN surrogate domain is very narrow**: v1 takes only the three ITO/Ag/ITO thicknesses as input (outer layers 20–80 nm, metal 5–20 nm), with fixed materials and substrate,
+  so anything outside the domain is extrapolation; its accuracy is measured against the **physics engine** (not the measured literature), and the model artefacts must be regenerated by retraining (already gitignored).
 
-### 4. 软件工程与部署
+### 4. Software engineering and deployment
 
-- **桌面版无认证**：`OMO_AUTH_MODE=none` 固定单用户（`user_id=local`），**仅限本机/离线使用，
-  绝不能暴露到网络**；联网部署必须使用默认 `jwt` 模式。
-- **任务为进程内异步**：无持久化队列、无重试、无取消接口；进程异常退出时未完成任务会停留在
-  `pending`/`running`，不自动恢复。
-- **单机单实例假设**：默认 SQLite（并发写受限），无多实例/分布式部署能力；
-  MySQL/PostgreSQL 已支持但 CI 只覆盖 SQLite。
-- **无速率限制与配额**，任务结果一次性写入（无版本化/重算）。
-- **测试覆盖不均**：Python/Go 有较完整单测与对标测试；前端已有 vitest 单测
-  （传输抽象/端点映射/能力门禁/路由守卫/历史页删除，5 文件 60 用例），但**仍无浏览器端到端测试，
-  真实 Electron 壳也未冒烟**。
-- **桌面版尚未交付**（设计见 `docs/desktop.md`）：当前仍是三进程 Web 形态；规划中的桌面包将
-  **排除 torch（无 NN 加速）**、无代码签名与自动更新、Windows 优先、轻量包需用户自备 Python。
-- **未实现**：报告导出、**通用**逆向设计（任意层数/层序、自定义目标函数——现有目标反推已覆盖
-  固定三层的硬约束膜厚反推，见 §3）、更多材料体系、`omo-cli simulate` 子命令等（见里程碑 ⏳）。
+- **The desktop version has no authentication**: `OMO_AUTH_MODE=none` fixes a single user (`user_id=local`), **for local/offline use only,
+  and it must never be exposed to a network**; networked deployments must use the default `jwt` mode.
+- **Tasks are in-process asynchronous**: no persistent queue, no retries, no cancel interface; when the process exits abnormally, unfinished tasks remain in
+  `pending`/`running` and are not recovered automatically.
+- **Single-machine single-instance assumption**: SQLite by default (concurrent writes are limited), with no multi-instance/distributed deployment capability;
+  MySQL/PostgreSQL are already supported but CI only covers SQLite.
+- **No rate limiting and no quotas**, and task results are written once (no versioning/recomputation).
+- **Uneven test coverage**: Python/Go have fairly complete unit tests and benchmarking tests; the frontend already has vitest unit tests
+  (transport abstraction/endpoint mapping/capability gate/route guard/history-page deletion, 5 files 60 cases), but there are **still no browser end-to-end tests,
+  and the real Electron shell has not been smoke-tested either**.
+- **The desktop version has not yet been delivered** (design see `docs/desktop.md`): it is still the three-process web form; the planned desktop package will
+  **exclude torch (no NN acceleration)**, have no code signing and no auto-update, be Windows-first, and the lightweight package requires the user to supply Python.
+- **Not implemented**: report export, **general** inverse design (arbitrary number of layers/layer order, custom objective functions — the existing inverse design already covers
+  hard-constrained thickness inverse design for a fixed three layers, see §3), more material systems, the `omo-cli simulate` subcommand, etc. (see the ⏳ milestones).
 
-### 5. 不适合的场景
+### 5. Unsuitable scenarios
 
-- **工艺定型 / 器件交付决策**：本工具用于筛选与机理解释，结论需实验验证；
-- 需要**不确定度量化**或**统计工艺容差**的场合；
-- 超出材料白名单、超出已验证厚度域（尤其薄 Ag）、或需要色散/粗糙度/退火效应的体系；
-- **多用户联网服务**：桌面版无认证；Web 版也缺少限流、审计、密码找回等生产级能力。
+- **Process freeze / device delivery decisions**: this tool is for screening and mechanism explanation, and its conclusions need experimental verification;
+- situations that require **uncertainty quantification** or **statistical process tolerances**;
+- systems beyond the material allowlist, beyond the validated thickness domain (especially thin Ag), or requiring dispersion/roughness/annealing effects;
+- **multi-user networked services**: the desktop version has no authentication; the web version also lacks production-grade capabilities such as rate limiting, auditing and password recovery.
 
-> 各条限制的细节与依据：`docs/physics/`（模型假设）、`docs/benchmarks/calibration.md`（校准与模型边界）、
-> `engine/src/omo/optimize/README.md`（反推设计）、`docs/desktop.md`（桌面版形态）、`docs/HANDOVER.md` §6（已知坑）。
+> Details and evidence for each limitation: `docs/physics/` (model assumptions), `docs/benchmarks/calibration.md` (calibration and model boundaries),
+> `engine/src/omo/optimize/README.md` (inverse-design design), `docs/desktop.md` (desktop form), `docs/HANDOVER.md` §6 (known pitfalls).
 
-## 文档索引
+## Document index
 
-- **项目宪法（Agent 入口）**：`AGENTS.md`
-- **交接报告（续接工作必读）**：`docs/HANDOVER.md`
-- **物理模型**：`docs/physics/{tmm,electrical,emi}.md`
-- **文献对标与校准**：`docs/benchmarks/`（README + calibration）
-- **API 契约**：`docs/api/`（rest = 对外 REST，engine = Go→Python 契约，rpc = 桌面 stdio JSON-RPC）
-- **桌面版设计**：`docs/desktop.md`
-- **各层**：`engine/README.md`、`server/README.md`、`frontend/README.md`、`desktop/README.md`
-- **脚本**：`scripts/README.md`（打包/引擎准备脚本的用法、退出码与坑）
+> Most of these documents exist in both languages: the English file is the same name with `.en`
+> before the extension (for example `docs/api/rest.en.md`). `AGENTS.md` and `docs/HANDOVER.md`
+> are Chinese-only. This README is the English one; the Chinese edition is [`README.zh.md`](README.zh.md).
+
+- **Project constitution (agent entry point)**: `AGENTS.md`
+- **Handover report (required reading for continuing the work)**: `docs/HANDOVER.md`
+- **Physics models**: `docs/physics/{tmm,electrical,emi}.md`
+- **Literature benchmarking and calibration**: `docs/benchmarks/` (README + calibration)
+- **API contracts**: `docs/api/` (rest = external REST, engine = Go→Python contract, rpc = desktop stdio JSON-RPC)
+- **Desktop version design**: `docs/desktop.md`
+- **Each layer**: `engine/README.md`, `server/README.md`, `frontend/README.md`, `desktop/README.md`
+- **Scripts**: `scripts/README.md` (usage, exit codes and pitfalls of the packaging/engine-preparation scripts)

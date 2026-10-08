@@ -37,6 +37,9 @@ const PRELOAD_PATH = join(HERE, '..', 'preload', 'preload.js')
 /** 开发模式：加载 Vite dev server 而不是打包资源（docs/desktop.md §8）。 */
 const DEV_URL = process.env.OMO_DESKTOP_DEV_URL?.trim() || undefined
 
+/** 冒烟自检超时（毫秒）；> 0 时启用，见 attachSmokeHooks。 */
+const SMOKE_MS = Number(process.env.OMO_DESKTOP_SMOKE_MS ?? '') || 0
+
 /** 打包后的渲染资源目录（构建期把 frontend/dist 放到 resources/dist）。 */
 const RENDERER_DIST = app.isPackaged
   ? join(process.resourcesPath, 'dist')
@@ -83,6 +86,8 @@ async function createMainWindow(): Promise<BrowserWindow> {
     mainWindow = null
   })
 
+  if (SMOKE_MS > 0) attachSmokeHooks(win)
+
   if (DEV_URL) {
     await win.loadURL(DEV_URL)
     win.webContents.openDevTools({ mode: 'detach' })
@@ -90,6 +95,36 @@ async function createMainWindow(): Promise<BrowserWindow> {
     await win.loadURL('app://omo/index.html')
   }
   return win
+}
+
+/**
+ * 冒烟自检钩子（`OMO_DESKTOP_SMOKE_MS`）：让"壳能不能启动并渲染"成为**可自动判定**的事，
+ * 而不是靠肉眼看窗口。渲染进程加载成功 → 打印 `[smoke] OK` 并退出 0；加载失败或超时 →
+ * 打印原因并退出 1。同时把渲染进程的 console 转发到主进程 stdout——CSP 拦截、preload 注入
+ * 失败这类问题正是以 console 报错的形式出现的（docs/desktop.md §10 的 T11 清单）。
+ */
+function attachSmokeHooks(win: BrowserWindow): void {
+  const timer = setTimeout(() => {
+    console.error(`[smoke] FAIL: renderer did not finish loading within ${SMOKE_MS} ms`)
+    app.exit(1)
+  }, SMOKE_MS)
+
+  win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    console.log(`[renderer:${String(level)}] ${message} (${sourceId}:${line})`)
+  })
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    clearTimeout(timer)
+    console.error(
+      `[smoke] FAIL: did-fail-load code=${errorCode} desc=${errorDescription} url=${validatedURL}`,
+    )
+    app.exit(1)
+  })
+  win.webContents.once('did-finish-load', () => {
+    clearTimeout(timer)
+    console.log(`[smoke] OK: renderer loaded ${win.webContents.getURL()}`)
+    // 让首屏请求（meta/IPC）与图表渲染跑起来，好把控制台错误都收上来再退出
+    setTimeout(() => app.quit(), 1500)
+  })
 }
 
 /** 导出诊断信息到数据目录并选中它（脱敏见 shell/diagnostics）。 */
