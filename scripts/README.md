@@ -3,7 +3,7 @@
 > **中文** · [English version](README.en.md)
 
 > 设计见 [`docs/desktop.md`](../docs/desktop.md) §6/§7；T8 交付 `setup-engine.ps1` 与 `build-lite.ps1`，
-> T9 交付 `build-desktop.ps1` 与 `rpc-cli.ps1`。
+> T9 交付 `build-desktop.ps1` 与 `rpc-cli.ps1`，T11 交付 `smoke-desktop.ps1`。
 
 | 脚本 | 任务 | 作用 |
 |---|---|---|
@@ -11,6 +11,7 @@
 | `build-lite.ps1` | T8 | 组装轻量包：渲染产物 + Go 后端 + **引擎源码** + setup 脚本 + README → 体积门禁 → zip |
 | `build-desktop.ps1` | T9 | 完整包：渲染产物 + Go 后端 + **PyInstaller 引擎 sidecar** + 壳 TS（main ESM / preload CJS）→ electron-builder → 体积门禁 |
 | `rpc-cli.ps1` | T9 | 手工调试：向 stdio 端点发一行/多行 JSON-RPC，把 stderr 日志与响应分开打印 |
+| `smoke-desktop.ps1` | T11 | **一键判定壳能不能跑**：构建齐（渲染/后端/壳 TS）→ 启动 Electron → 渲染成功退出 **0**、失败退出 **1** 并打印原因 |
 | `start-local.ps1` | T9 | 无壳调试（HTTP 模式 + 打开浏览器）—— **待做** |
 
 ## 用法
@@ -33,10 +34,19 @@ powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method ping
 powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method tasks.list
 powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Target engine -Method ping
 powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method no.such.method  # 看 -32601
+
+# 壳冒烟自检（必须在 DSH 沙箱**外**的普通终端里跑，见下）
+powershell -ExecutionPolicy Bypass -File scripts\smoke-desktop.ps1
+powershell -ExecutionPolicy Bypass -File scripts\smoke-desktop.ps1 -SkipBuild   # 用已有产物，快
 ```
 
-退出码：`setup-engine` / `rpc-cli` = 0 成功 / 1 失败；`build-lite` / `build-desktop` =
-0 出包 / 1 构建或门禁失败 / **2 仅暂存**（没做最后的打包步骤，不假装成功）。
+退出码：`setup-engine` / `rpc-cli` / `smoke-desktop` = 0 成功 / 1 失败；
+`build-lite` / `build-desktop` = 0 出包 / 1 构建或门禁失败 / **2 仅暂存**（没做最后的打包步骤，不假装成功）。
+
+> `smoke-desktop.ps1` 是 T11 的判定工具：渲染成功打印 `[smoke] OK` 并退出 0，否则打印原因退出 1
+> （会识别原生崩溃码并提示是不是跑在沙箱里）。它做的正是 docs/desktop.md §10 里那几件"必须真的启动一次"的事。
+> ⚠️ **沙箱内必然失败**：DSH 沙箱里 Electron 的浏览器进程起不来（HANDOVER §6.31 有完整证据），
+> 所以这个脚本要在**沙箱外的普通 PowerShell 窗口**里跑；在沙箱内跑会看到 `0x80000003` 原生崩溃。
 
 > `rpc-cli.ps1` 默认把 SQLite 放在系统临时目录；受限环境（如本仓库的沙箱）用 `-DataDir <可写目录>`
 > 指到工作区内，否则会撞上 HANDOVER §6.23 那个「`%TEMP%` 写不了 SQLite」的坑。

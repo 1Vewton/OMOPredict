@@ -251,6 +251,9 @@ docs/research/
 
 # Go 中间层本地产物
 server/*.db
+# go build 产物（scripts/smoke-desktop.ps1 会把后端起在这里）
+server/omopredict
+server/omopredict.exe
 
 # Go 中间层配置与本地库
 server/.env

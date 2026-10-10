@@ -3,7 +3,7 @@
 > **English** · [中文版](README.md)
 
 > Design in [`docs/desktop.md`](../docs/desktop.md) §6/§7; T8 delivers `setup-engine.ps1` and `build-lite.ps1`,
-> and T9 delivers `build-desktop.ps1` and `rpc-cli.ps1`.
+> T9 delivers `build-desktop.ps1` and `rpc-cli.ps1`, and T11 delivers `smoke-desktop.ps1`.
 
 | Script | Task | Purpose |
 |---|---|---|
@@ -11,6 +11,7 @@
 | `build-lite.ps1` | T8 | Assemble the lightweight package: rendered artefacts + Go backend + **engine source** + setup script + README → size gate → zip |
 | `build-desktop.ps1` | T9 | Full package: rendered artefacts + Go backend + **PyInstaller engine sidecar** + shell TS (main ESM / preload CJS) → electron-builder → size gate |
 | `rpc-cli.ps1` | T9 | Manual debugging: send one or more lines of JSON-RPC to the stdio endpoint, printing stderr logs and responses separately |
+| `smoke-desktop.ps1` | T11 | **One command to decide whether the shell runs**: build everything (renderer/backend/shell TS) → start Electron → exit **0** on a successful render, **1** on failure with the reason printed |
 | `start-local.ps1` | T9 | Shell-less debugging (HTTP mode + open a browser) — **to do** |
 
 ## Usage
@@ -33,10 +34,22 @@ powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method ping
 powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method tasks.list
 powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Target engine -Method ping
 powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method no.such.method  # see -32601
+
+# Shell smoke check (must be run in a normal terminal OUTSIDE the DSH sandbox - see below)
+powershell -ExecutionPolicy Bypass -File scripts\smoke-desktop.ps1
+powershell -ExecutionPolicy Bypass -File scripts\smoke-desktop.ps1 -SkipBuild   # reuse existing artefacts, faster
 ```
 
-Exit codes: `setup-engine` / `rpc-cli` = 0 success / 1 failure; `build-lite` / `build-desktop` =
-0 package produced / 1 build or size-gate failure / **2 staged only** (the final packaging step was not performed, and success is not faked).
+Exit codes: `setup-engine` / `rpc-cli` / `smoke-desktop` = 0 success / 1 failure;
+`build-lite` / `build-desktop` = 0 package produced / 1 build or size-gate failure / **2 staged only**
+(the final packaging step was not performed, and success is not faked).
+
+> `smoke-desktop.ps1` is the T11 decider: on a successful render it prints `[smoke] OK` and exits 0,
+> otherwise it prints the reason and exits 1 (it recognises native crash codes and hints whether you are
+> inside the sandbox). It performs exactly the "must actually launch once" items in docs/desktop.md §10.
+> ⚠️ **It necessarily fails inside the sandbox**: Electron's browser process cannot start there
+> (full evidence in HANDOVER §6.31), so run this script in a **normal PowerShell window outside the
+> sandbox**; inside it you will see a `0x80000003` native crash.
 
 > `rpc-cli.ps1` places SQLite in the system temporary directory by default; in restricted environments (such as this repository's sandbox) use `-DataDir <writable directory>`
 > to point it inside the workspace, otherwise you hit the "`%TEMP%` cannot write SQLite" pitfall from HANDOVER §6.23.
