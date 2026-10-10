@@ -11,7 +11,8 @@
 | `build-lite.ps1` | T8 | Assemble the lightweight package: rendered artefacts + Go backend + **engine source** + setup script + README → size gate → zip |
 | `build-desktop.ps1` | T9 | Full package: rendered artefacts + Go backend + **PyInstaller engine sidecar** + shell TS (main ESM / preload CJS) → electron-builder → size gate |
 | `rpc-cli.ps1` | T9 | Manual debugging: send one or more lines of JSON-RPC to the stdio endpoint, printing stderr logs and responses separately |
-| `smoke-desktop.ps1` | T11 | **One command to decide whether the shell runs**: build everything (renderer/backend/shell TS) → start Electron → exit **0** on a successful render, **1** on failure with the reason printed |
+| `smoke-desktop.ps1` | T11 | **One command to decide whether the shell runs**: build everything (renderer/backend/shell TS) → start Electron → exit **0** on a successful render, **1** on failure with the reason printed; it self-checks at the start whether it is running inside the harness |
+| `diagnose-electron.ps1` | T11 | Electron launch diagnostics: prints "where am I running" (`ELECTRON_RUN_AS_NODE` / DSH variables / parent process) plus a launch matrix for a minimal Electron app, to tell "inside the sandbox" apart from "cannot start on this machine" |
 | `start-local.ps1` | T9 | Shell-less debugging (HTTP mode + open a browser) — **to do** |
 
 ## Usage

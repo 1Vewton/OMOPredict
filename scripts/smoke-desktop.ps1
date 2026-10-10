@@ -32,6 +32,19 @@ $repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $desktop = Join-Path $repo 'desktop'
 $electron = Join-Path $desktop 'node_modules/electron/dist/electron.exe'
 
+# Detect the DSH harness environment UP FRONT. Inside it Electron cannot start (HANDOVER 6.31), and
+# the symptom (0x80000003, no output) is identical to a real failure - which is very confusing, so
+# say it here instead of letting the user puzzle over the verdict at the end.
+$inHarness = ($env:ELECTRON_RUN_AS_NODE -ne '') -or [bool](Get-ChildItem Env:DSH_* -ErrorAction SilentlyContinue)
+if ($inHarness) {
+    Write-Warning 'You appear to be INSIDE the DSH harness environment'
+    Write-Warning ("  ELECTRON_RUN_AS_NODE='" + $env:ELECTRON_RUN_AS_NODE + "', DSH_* variables present")
+    Write-Warning 'Electron cannot start here, so this run WILL fail with 0x80000003 (expected, not a bug).'
+    Write-Warning 'Open a normal PowerShell window from the Start menu (not from the DSH GUI) and re-run:'
+    Write-Warning ("  powershell -ExecutionPolicy Bypass -File `"" + (Join-Path $PSScriptRoot 'smoke-desktop.ps1') + "`" -SkipBuild")
+    Write-Host ''
+}
+
 Write-Host '[1/5] Electron binary'
 if (-not (Test-Path -LiteralPath $electron)) {
     Write-Host '      missing - downloading it now (about 115 MB, a few minutes)'

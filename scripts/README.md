@@ -11,7 +11,8 @@
 | `build-lite.ps1` | T8 | 组装轻量包：渲染产物 + Go 后端 + **引擎源码** + setup 脚本 + README → 体积门禁 → zip |
 | `build-desktop.ps1` | T9 | 完整包：渲染产物 + Go 后端 + **PyInstaller 引擎 sidecar** + 壳 TS（main ESM / preload CJS）→ electron-builder → 体积门禁 |
 | `rpc-cli.ps1` | T9 | 手工调试：向 stdio 端点发一行/多行 JSON-RPC，把 stderr 日志与响应分开打印 |
-| `smoke-desktop.ps1` | T11 | **一键判定壳能不能跑**：构建齐（渲染/后端/壳 TS）→ 启动 Electron → 渲染成功退出 **0**、失败退出 **1** 并打印原因 |
+| `smoke-desktop.ps1` | T11 | **一键判定壳能不能跑**：构建齐（渲染/后端/壳 TS）→ 启动 Electron → 渲染成功退出 **0**、失败退出 **1** 并打印原因；开头会自检是不是跑在 harness 里 |
+| `diagnose-electron.ps1` | T11 | Electron 启动诊断：打印"我在哪跑"（`ELECTRON_RUN_AS_NODE`/DSH 变量/父进程）+ 最小 Electron 程序的启动矩阵，用来区分"在沙箱内"与"机器本身起不来" |
 | `start-local.ps1` | T9 | 无壳调试（HTTP 模式 + 打开浏览器）—— **待做** |
 
 ## 用法
