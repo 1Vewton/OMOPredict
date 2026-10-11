@@ -89,11 +89,89 @@ Invoke-Case 'mini --no-sandbox --disable-gpu' @($mini, '--no-sandbox', '--disabl
 
 Write-Host ''
 Write-Host '=== 3. how to read the matrix ==='
-Write-Host '  IN the sandbox (reference signature, measured 2026-10):'
+Write-Host '  Measured signature when Chromium cannot start (2026-10, reproduced BOTH inside the DSH'
+Write-Host '  sandbox and in a plain WindowsTerminal window on this machine):'
 Write-Host '    --version                        exit=-2147483645 (0x80000003), no output'
-Write-Host '    --version --no-sandbox           exit=0, prints v44.4.5'
+Write-Host '    --version --no-sandbox           exit=0, prints v44.4.5   <- binary itself is FINE'
 Write-Host '    mini                             exit=-2147483645 (0x80000003), no output'
 Write-Host '    mini --no-sandbox                exit=-1073741819 (0xC0000005), prints [mini] main script loaded'
-Write-Host '  If your matrix matches that, you are still inside the sandbox.'
-Write-Host '  If --version --no-sandbox does NOT print v44.4.5 outside the sandbox, the binary'
-Write-Host '  itself is not runnable in your session (security software / policy / session type).'
+Write-Host '  --version --no-sandbox working proves electron.exe loads, so this is NOT a corrupt download:'
+Write-Host '  something in the runtime blocks Chromium startup (sandbox init, then browser init).'
+Write-Host '  Section 4 below narrows down what that something is.'
+
+Write-Host ''
+Write-Host '=== 4. host-level checks (what could block Chromium) ==='
+
+Write-Host '  [4.1] Image File Execution Options (a "Debugger" value here explains 0x80000003):'
+foreach ($key in @(
+        'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\electron.exe',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\electron.exe')) {
+    $props = Get-ItemProperty -Path $key -ErrorAction SilentlyContinue
+    if ($props) {
+        Write-Host ("    " + $key)
+        $props.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object {
+            Write-Host ("      " + $_.Name + " = " + $_.Value)
+        }
+    }
+    else {
+        Write-Host ("    (none) " + $key)
+    }
+}
+
+Write-Host '  [4.2] Exploit Protection / process mitigations for electron.exe:'
+try {
+    $mit = Get-ProcessMitigation -Name 'electron.exe' -ErrorAction Stop
+    Write-Host ("    DEP: " + $mit.Dep.Enable + "   ASLR(bottomUp): " + $mit.Aslr.BottomUp +
+        "   ASLR(forceRelocate): " + $mit.Aslr.ForceRelocateImages +
+        "   CFG: " + $mit.Cfg.Enable + "   CodeIntegrityGuard: " + $mit.CodeIntegrityGuard.Enable)
+}
+catch {
+    Write-Host ("    unavailable: " + ($_.Exception.Message -split "`n")[0])
+}
+
+Write-Host '  [4.3] recent Application Error events (the faulting module is the useful part):'
+try {
+    $events = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'Application Error' } -MaxEvents 3 -ErrorAction Stop
+    foreach ($e in $events) {
+        $msg = ($e.Message -replace "`r?`n", ' ')
+        if ($msg.Length -gt 220) { $msg = $msg.Substring(0, 220) + '...' }
+        Write-Host ("    " + $e.TimeCreated + "  " + $msg)
+    }
+}
+catch {
+    Write-Host ("    none / unavailable: " + ($_.Exception.Message -split "`n")[0])
+}
+
+Write-Host '  [4.4] Windows Defender detections mentioning electron:'
+try {
+    $hits = @(Get-MpThreatDetection -ErrorAction Stop | Where-Object { "$($_.Resources)" -match 'electron' } |
+        Select-Object -First 3)
+    if ($hits.Count -eq 0) { Write-Host '    none' }
+    else { $hits | ForEach-Object { Write-Host ("    " + $_.InitialDetectionTime + "  " + ($_.Resources -join ' ')) } }
+}
+catch {
+    Write-Host ("    unavailable (a third-party AV may have taken over): " + ($_.Exception.Message -split "`n")[0])
+}
+
+Write-Host '  [4.5] can ANOTHER Chromium app start on this machine? (isolates electron.exe):'
+$edge = @(
+    (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'),
+    (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe')
+) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+if (-not $edge) {
+    Write-Host '    msedge.exe not found - if you have Chrome, try: chrome --headless=new --dump-dom about:blank'
+}
+else {
+    $edgeOut = Join-Path $env:TEMP 'omo-edge.out'
+    Remove-Item $edgeOut -ErrorAction SilentlyContinue
+    $ep = Start-Process -FilePath $edge -ArgumentList '--headless=new', '--disable-gpu', '--dump-dom', 'about:blank' `
+        -PassThru -RedirectStandardOutput $edgeOut -RedirectStandardError (Join-Path $env:TEMP 'omo-edge.err')
+    if (-not $ep.WaitForExit(25000)) { $ep.Kill(); Write-Host '    Edge headless: TIMEOUT' }
+    else {
+        $ep.Refresh()
+        $len = 0
+        if (Test-Path $edgeOut) { $len = (Get-Item $edgeOut).Length }
+        Write-Host ("    Edge headless exit=" + $ep.ExitCode + "  stdout bytes=" + $len)
+        Write-Host '    (exit=0 with output => Chromium works here, so the blocker targets electron.exe specifically)'
+    }
+}

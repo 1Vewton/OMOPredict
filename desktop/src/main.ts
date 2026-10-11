@@ -8,13 +8,13 @@
 // 安全基线（D2/D11）：渲染进程不联网（CSP `connect-src 'none'`）、无 Node 能力、
 // 上下文隔离 + 沙箱，仅通过 preload 白名单与主进程通信。
 import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell } from 'electron'
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { readFile as readFileAsync } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import { Host } from './host/host'
 import { BackendExitError } from './host/backend'
 import { describeEngineFailure } from './host/engine'
+import { resolveHostPaths } from './host/paths'
 import { SingleInstanceError } from './host/singleton'
 import { CHANNELS, makeRpcHandler } from './shell/channels'
 import { RESPONSE_HEADERS, resolveAppRequest } from './shell/appProtocol'
@@ -23,8 +23,11 @@ import { buildDiagnostics, diagnosticsFileName } from './shell/diagnostics'
 import { buildMenuTemplate } from './shell/menu'
 import { mainWindowOptions } from './shell/windowOptions'
 
-/** 本文件所在目录（编译产物与 preload 同目录）。 */
-const HERE = dirname(fileURLToPath(import.meta.url))
+/**
+ * 本文件所在目录（编译产物 `dist/main`）。产物是 **CommonJS**（见 tsconfig.build.json），
+ * 所以直接用 `__dirname`；`import.meta.url` 在 CJS 里不可用。
+ */
+const HERE = __dirname
 
 /**
  * preload 必须是 **CommonJS**：窗口启用了 `sandbox: true`，而沙箱化的 preload 只能是 CJS，
@@ -56,6 +59,39 @@ protocol.registerSchemesAsPrivileged([
     privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false },
   },
 ])
+
+/**
+ * 在**任何 Chromium 初始化之前**把 user-data 目录建出来，并放进本应用自己的数据目录（D6）。
+ *
+ * 为什么必须自己做：Chromium 通常会自己创建这个目录，但在某些机器上这一步会失败，进程随即在
+ * **我们的代码执行之前**崩掉——实测 `0xC0000005`，崩溃模块是 electron.exe 本身、偏移固定；
+ * 目录预先存在时 5/5 正常，不存在时 0/5，而且它不会把目录建出来。症状是"应用完全起不来"，
+ * 却连一行日志都留不下，极难定位（2026-10 在这台机器上花了不少时间才挖到）。
+ *
+ * 顺带的好处：Electron 的缓存/存储与 Go 后端的数据落在同一处（`%LOCALAPPDATA%\OMOPredict`），
+ * 排障时只需看一个目录。
+ */
+const HOST_PATHS = resolveHostPaths()
+const USER_DATA_DIR = join(HOST_PATHS.dataDir, 'electron')
+// 尊重调用方显式给的 --user-data-dir：那种情况下由调用方负责目录，我们不要覆盖它
+// （否则在受限环境里会把可用的 profile 换成一个建不出来的路径，白白崩掉）。
+const cliUserDataDir = process.argv.find((a) => a.startsWith('--user-data-dir'))
+if (cliUserDataDir) {
+  console.log(`[main] 使用命令行指定的 user-data 目录: ${cliUserDataDir}`)
+} else {
+  try {
+    mkdirSync(USER_DATA_DIR, { recursive: true })
+    app.setPath('userData', USER_DATA_DIR)
+  } catch (e) {
+    // 连自建目录都失败时退回 Electron 默认位置——但仍然要确保它存在
+    console.error(`[main] 无法创建 user-data 目录 ${USER_DATA_DIR}: ${(e as Error).message}`)
+    try {
+      mkdirSync(app.getPath('userData'), { recursive: true })
+    } catch (e2) {
+      console.error(`[main] 默认 user-data 目录也不可创建: ${(e2 as Error).message}`)
+    }
+  }
+}
 
 /** 注册 `app://` 处理器：只服务打包好的渲染资源，未知路径回退 index.html（D2）。 */
 function registerAppProtocol(): void {
@@ -99,9 +135,10 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
 /**
  * 冒烟自检钩子（`OMO_DESKTOP_SMOKE_MS`）：让"壳能不能启动并渲染"成为**可自动判定**的事，
- * 而不是靠肉眼看窗口。渲染进程加载成功 → 打印 `[smoke] OK` 并退出 0；加载失败或超时 →
- * 打印原因并退出 1。同时把渲染进程的 console 转发到主进程 stdout——CSP 拦截、preload 注入
- * 失败这类问题正是以 console 报错的形式出现的（docs/desktop.md §10 的 T11 清单）。
+ * 而不是靠肉眼看窗口。渲染进程加载成功 → 打印 `[smoke] OK`；桥也通了 → 打印 `[smoke] BRIDGE OK`
+ * 并以 0 退出；加载失败、超时或桥不通 → 打印原因并以 1 退出。
+ * 同时把渲染进程的 console 转发到主进程 stdout——CSP 拦截、preload 注入失败这类问题正是以
+ * console 报错的形式出现的（docs/desktop.md §10 的 T11 清单）。
  */
 function attachSmokeHooks(win: BrowserWindow): void {
   const timer = setTimeout(() => {
@@ -109,8 +146,9 @@ function attachSmokeHooks(win: BrowserWindow): void {
     app.exit(1)
   }, SMOKE_MS)
 
-  win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-    console.log(`[renderer:${String(level)}] ${message} (${sourceId}:${line})`)
+  // Electron 44 起改用单个事件对象（旧的多参数签名已废弃并会打警告）
+  win.webContents.on('console-message', (event) => {
+    console.log(`[renderer:${String(event.level)}] ${event.message} (${event.sourceId}:${event.lineNumber})`)
   })
   win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     clearTimeout(timer)
@@ -122,8 +160,44 @@ function attachSmokeHooks(win: BrowserWindow): void {
   win.webContents.once('did-finish-load', () => {
     clearTimeout(timer)
     console.log(`[smoke] OK: renderer loaded ${win.webContents.getURL()}`)
-    // 让首屏请求（meta/IPC）与图表渲染跑起来，好把控制台错误都收上来再退出
-    setTimeout(() => app.quit(), 1500)
+    // 光"加载成功"不够：还要证明 preload 真的把桥注入了、而且桥能通到后端。
+    // 沙箱化的 preload 一旦加载失败（例如用了相对 require），页面照样渲染，只是 window.omo 不存在，
+    // 前端会静默退回 HTTP 并被 CSP 挡掉——那种失败以前只能靠人肉看控制台。
+    const probe = win.webContents
+      .executeJavaScript(
+        `(async () => {
+           if (typeof window.omo !== 'object' || window.omo === null) {
+             return { ok: false, why: 'window.omo missing (preload did not run)' }
+           }
+           try {
+             const meta = await window.omo.rpc('meta')
+             return { ok: true, meta }
+           } catch (e) {
+             return { ok: false, why: 'rpc failed: ' + String((e && e.message) || e) }
+           }
+         })()`,
+        true,
+      )
+      .then((result: { ok: boolean; why?: string; meta?: unknown }) => {
+        if (result?.ok) {
+          console.log(`[smoke] BRIDGE OK: window.omo.rpc('meta') -> ${JSON.stringify(result.meta)}`)
+          return true
+        }
+        console.error(`[smoke] BRIDGE FAIL: ${result?.why ?? 'unknown'}`)
+        return false
+      })
+      .catch((e: Error) => {
+        console.error(`[smoke] BRIDGE FAIL: probe threw ${e.message}`)
+        return false
+      })
+
+    // 等桥的结论，再让首屏请求与图表跑一会儿（好把控制台错误都收上来），然后据实定退出码
+    void probe.then((bridgeOk) => {
+      setTimeout(() => {
+        if (bridgeOk) app.quit()
+        else app.exit(1)
+      }, 1500)
+    })
   })
 }
 

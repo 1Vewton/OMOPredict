@@ -39,9 +39,15 @@ $inHarness = ($env:ELECTRON_RUN_AS_NODE -ne '') -or [bool](Get-ChildItem Env:DSH
 if ($inHarness) {
     Write-Warning 'You appear to be INSIDE the DSH harness environment'
     Write-Warning ("  ELECTRON_RUN_AS_NODE='" + $env:ELECTRON_RUN_AS_NODE + "', DSH_* variables present")
-    Write-Warning 'Electron cannot start here, so this run WILL fail with 0x80000003 (expected, not a bug).'
-    Write-Warning 'Open a normal PowerShell window from the Start menu (not from the DSH GUI) and re-run:'
-    Write-Warning ("  powershell -ExecutionPolicy Bypass -File `"" + (Join-Path $PSScriptRoot 'smoke-desktop.ps1') + "`" -SkipBuild")
+    Write-Warning 'Electron cannot start here, so the first attempt WILL fail with 0x80000003 (expected).'
+    Write-Warning 'The script then retries with the sandbox disabled and workspace-local data dirs, which'
+    Write-Warning 'does work here. On a normal desktop just run this from the Start menu instead.'
+    # The harness denies mkdir outside the workspace, so point the app's data dir at the workspace
+    # too (otherwise Host startup fails with EPERM and the app exits before rendering).
+    $localRedirect = Join-Path $repo '.smoke/localappdata'
+    New-Item -ItemType Directory -Force -Path $localRedirect | Out-Null
+    $env:LOCALAPPDATA = $localRedirect
+    Write-Warning ("  LOCALAPPDATA redirected to " + $localRedirect)
     Write-Host ''
 }
 
@@ -91,15 +97,19 @@ if (-not (Test-Path -LiteralPath $backend)) {
     throw "backend missing: $backend (run without -SkipBuild, or build it manually)"
 }
 
-Write-Host '[4/5] shell TypeScript (main = ESM, preload = CJS)'
+Write-Host '[4/5] shell TypeScript (main = CJS, preload = bundled single file)'
 if (-not $SkipBuild) {
     Push-Location $desktop
     try {
+        # pnpm 11 aborts in a non-TTY environment when it wants to rebuild node_modules; CI=true lets it continue
+        $env:CI = 'true'
         & pnpm build
         if ($LASTEXITCODE -ne 0) { throw "shell build failed (exit $LASTEXITCODE)" }
     }
     finally { Pop-Location }
 }
+# main and preload are both CommonJS, so each output dir gets a package.json declaring the type
+Set-Content -LiteralPath (Join-Path $desktop 'dist/main/package.json') -Value '{ "type": "commonjs" }' -Encoding ASCII
 Set-Content -LiteralPath (Join-Path $desktop 'dist/preload/package.json') -Value '{ "type": "commonjs" }' -Encoding ASCII
 $mainJs = Join-Path $desktop 'dist/main/main.js'
 if (-not (Test-Path -LiteralPath $mainJs)) { throw "shell main missing: $mainJs" }
@@ -115,16 +125,40 @@ if (Test-Path -LiteralPath $enginePython) {
 
 $outLog = Join-Path $env:TEMP 'omopredict-smoke-out.log'
 $errLog = Join-Path $env:TEMP 'omopredict-smoke-err.log'
-Remove-Item $outLog, $errLog -ErrorAction SilentlyContinue
 
-Push-Location $desktop
-try {
-    $proc = Start-Process -FilePath $electron -ArgumentList '.' -PassThru -Wait `
-        -RedirectStandardOutput $outLog -RedirectStandardError $errLog
-    $proc.Refresh()
-    $code = $proc.ExitCode
+# Run the shell. If it dies with a native crash code before any of our JS runs (0x80000003 /
+# 0xC0000005), that is Chromium's own process sandbox failing to initialise on this machine
+# (docs/HANDOVER.md 6.31) - retry once with the sandbox disabled so the app is still verifiable.
+# On a healthy machine the first attempt just succeeds and nothing here changes.
+function Invoke-ShellAttempt {
+    param([switch] $DisableSandbox, [string] $UserDataDir)
+    Remove-Item $outLog, $errLog -ErrorAction SilentlyContinue
+    if ($DisableSandbox) { $env:ELECTRON_DISABLE_SANDBOX = '1' } else { Remove-Item Env:ELECTRON_DISABLE_SANDBOX -ErrorAction SilentlyContinue }
+    $argv = @('.')
+    if ($UserDataDir) { $argv += ("--user-data-dir=" + $UserDataDir) }
+    Push-Location $desktop
+    try {
+        $proc = Start-Process -FilePath $electron -ArgumentList $argv -PassThru -Wait `
+            -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+        $proc.Refresh()
+        return $proc.ExitCode
+    }
+    finally { Pop-Location }
 }
-finally { Pop-Location }
+
+$code = Invoke-ShellAttempt
+$out = @(Get-Content $outLog -ErrorAction SilentlyContinue)
+$usedFallback = $false
+if ($code -lt 0 -and ($out -join "`n") -notmatch '\[smoke\]') {
+    Write-Host ''
+    Write-Host ("      attempt 1 died before our code ran (exit $code) - retrying with the sandbox disabled")
+    $usedFallback = $true
+    # Chromium also refuses to create the user-data directory itself on such machines, so hand it one
+    $fallbackProfile = Join-Path $repo '.smoke/profile'
+    New-Item -ItemType Directory -Force -Path $fallbackProfile | Out-Null
+    $code = Invoke-ShellAttempt -DisableSandbox -UserDataDir $fallbackProfile
+}
+Remove-Item Env:ELECTRON_DISABLE_SANDBOX -ErrorAction SilentlyContinue
 
 Write-Host ''
 Write-Host '--- shell output ---'
@@ -139,18 +173,30 @@ if ($err.Count -gt 0) {
 Write-Host ''
 Write-Host '=== VERDICT ==='
 Write-Host ("exit code: " + $code)
-if ($code -eq 0 -and ($out -match '\[smoke\] OK')) {
-    Write-Host 'PASS: the shell started and rendered app://omo/index.html'
+$bridgeOk = ($out -join "`n") -match '\[smoke\] BRIDGE OK'
+$renderOk = ($out -join "`n") -match '\[smoke\] OK'
+if ($code -eq 0 -and $bridgeOk) {
+    Write-Host 'PASS: renderer loaded app://omo/index.html AND window.omo.rpc() answered'
+    Write-Host '      (preload injected, IPC bridge -> Host -> Go backend -> engine all verified)'
+    if ($usedFallback) {
+        Write-Host 'NOTE: this machine needed ELECTRON_DISABLE_SANDBOX=1 and a pre-created --user-data-dir,'
+        Write-Host '      because Chromium cannot initialise its process sandbox / profile here'
+        Write-Host '      (docs/HANDOVER.md 6.31/6.35). On a healthy machine attempt 1 succeeds without them.'
+    }
     exit 0
+}
+if ($code -eq 0 -and $renderOk) {
+    Write-Host 'PARTIAL: the renderer loaded, but the IPC bridge did not answer'
+    Write-Host '         (preload missing or window.omo not injected - see the BRIDGE FAIL line above)'
+    exit 1
 }
 Write-Host 'FAIL: the shell did not render. The reason is in the output above.'
 if ($code -lt 0) {
-    # Native crash codes look like this: 0xC0000005 (access violation) or 0x80000003 (breakpoint),
-    # which is what Electron does when the DSH sandbox blocks Chromium startup (HANDOVER 6.31).
+    # Native crash codes: 0xC0000005 (access violation) / 0x80000003 (breakpoint). Seen when Chromium's
+    # sandbox cannot start, or when its user-data directory cannot be created (HANDOVER 6.31/6.35).
     $hex = '0x{0:X8}' -f ([int64]$code -band 0xFFFFFFFFL)
-    Write-Host ("hint: exit code $code ($hex) is a native crash. If you ran this INSIDE the DSH sandbox,")
-    Write-Host '      that is expected - Electron cannot start there (docs/HANDOVER.md 6.31). Re-run it in a'
-    Write-Host '      normal PowerShell window on the desktop.'
+    Write-Host ("hint: exit code $code ($hex) is a native crash that happened before our code ran, so it is a")
+    Write-Host '      Chromium startup problem, not an OMOPredict bug. Check docs/HANDOVER.md 6.35.'
 }
 Write-Host 'Please send that output back for diagnosis.'
 exit 1

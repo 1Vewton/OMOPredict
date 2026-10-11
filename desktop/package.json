@@ -8,15 +8,19 @@
   "main": "dist/main/main.js",
   "scripts": {
     "type-check": "tsc --noEmit",
+    "//clean": "esbuild 不会清理输出目录，改名/删掉的旧产物会残留在 dist 里（曾残留两个 CJS 模块）",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build:main": "tsc -p tsconfig.build.json",
-    "build:preload": "tsc -p tsconfig.preload.json",
-    "build": "pnpm build:main && pnpm build:preload",
+    "//build:preload": "必须打成单文件：沙箱化的 preload 不支持相对 require（实测 module not found: ./shell/preloadBridge）",
+    "build:preload": "esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/preload/preload.js",
+    "build": "pnpm clean && pnpm build:main && pnpm build:preload",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "electron": "^44.4.5",
+    "esbuild": "^0.28.2",
     "typescript": "~5.8.3",
     "vitest": "^5.0.2"
   },
@@ -28,14 +32,29 @@
       "output": "release",
       "buildResources": "build"
     },
-    "files": ["dist/**/*", "package.json"],
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
     "extraResources": [
-      { "from": "../frontend/dist", "to": "dist" },
-      { "from": "release-bin/omopredict-server.exe", "to": "omopredict-server.exe" },
-      { "from": "release-bin/omo-rpc", "to": "engine" }
+      {
+        "from": "../frontend/dist",
+        "to": "dist"
+      },
+      {
+        "from": "release-bin/omopredict-server.exe",
+        "to": "omopredict-server.exe"
+      },
+      {
+        "from": "release-bin/omo-rpc",
+        "to": "engine"
+      }
     ],
     "win": {
-      "target": ["nsis", "zip"]
+      "target": [
+        "nsis",
+        "zip"
+      ]
     },
     "nsis": {
       "oneClick": false,

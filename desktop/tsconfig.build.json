@@ -1,11 +1,15 @@
 {
+  "//": "main 与 preload 都编译成 CommonJS：Node 的 ESM 加载器要求相对导入带 .js 后缀，而 tsc 不会自动加，",
+  "//2": "ESM 产物因此直接加载失败（实测 ERR_MODULE_NOT_FOUND: dist/main/host/host）。CJS 的解析规则会补后缀。",
+  "//3": "两者各自在自己目录里放一个 {type:commonjs} 的 package.json 来定类型（见 scripts/build-desktop.ps1）。",
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false,
     "outDir": "dist/main",
     "rootDir": "src",
-    "module": "ES2022",
-    "moduleResolution": "bundler",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "verbatimModuleSyntax": false,
     "sourceMap": false
   },
   "include": ["src/main.ts"],
