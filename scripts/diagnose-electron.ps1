@@ -26,22 +26,29 @@ $versionFile = Join-Path $repo 'desktop/node_modules/electron/dist/version'
 Write-Host '=== 1. where am I running? ==='
 Write-Host ("  UserInteractive        : " + [System.Environment]::UserInteractive)
 Write-Host ("  SessionId              : " + (Get-Process -Id $PID).SessionId)
-Write-Host ("  ELECTRON_RUN_AS_NODE   : '" + $env:ELECTRON_RUN_AS_NODE + "'   (non-empty => set by the harness)")
-Write-Host ("  OMO_DSH_* present      : " + [bool](Get-ChildItem Env: | Where-Object { $_.Name -like 'DSH_*' -or $_.Name -like 'OMO_DSH*' }))
-$me = Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction SilentlyContinue
-if ($me) {
-    $parent = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $me.ParentProcessId) -ErrorAction SilentlyContinue
-    Write-Host ("  my process             : " + $me.Name)
-    Write-Host ("  my parent              : " + ($(if ($parent) { $parent.Name } else { '(unknown)' })))
-    if ($parent -and $parent.CommandLine) {
-        $cmd = [string]$parent.CommandLine
-        if ($cmd.Length -gt 120) { $cmd = $cmd.Substring(0, 120) + '...' }
-        Write-Host ("  parent command line    : " + $cmd)
-    }
+Write-Host ("  ELECTRON_RUN_AS_NODE   : '" + $env:ELECTRON_RUN_AS_NODE + "'   (empty = NOT in the harness env)")
+Write-Host ("  DSH_* variables        : " + [bool](Get-ChildItem Env: -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'DSH_*' -or $_.Name -like 'OMO_DSH*' }))
+Write-Host ("  my PID                 : " + $PID)
+
+# The parent chain is the decisive evidence. A genuine desktop window is launched by explorer.exe;
+# if the chain leads back to the DSH harness (node/dsh/uv/agent), this window is a CHILD of the
+# harness and stays confined even though its environment looks clean.
+Write-Host '  process chain (self -> parent -> grandparent):'
+$cursor = $PID
+for ($depth = 0; $depth -lt 3; $depth++) {
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$cursor" -ErrorAction SilentlyContinue
+    if (-not $proc) { break }
+    $cmd = [string]$proc.CommandLine
+    if ($cmd.Length -gt 90) { $cmd = $cmd.Substring(0, 90) + '...' }
+    Write-Host ("    [{0}] {1} (pid {2})  {3}" -f $depth, $proc.Name, $proc.ProcessId, $cmd)
+    if (-not $proc.ParentProcessId -or $proc.ParentProcessId -eq 0) { break }
+    $cursor = $proc.ParentProcessId
 }
 Write-Host ("  electron dist version  : " + (Get-Content -LiteralPath $versionFile -ErrorAction SilentlyContinue))
-Write-Host '  how to read this: if ELECTRON_RUN_AS_NODE is "1", or the parent is the DSH harness,'
-Write-Host '                    you are inside the sandbox - and 0x80000003 is the expected result there.'
+Write-Host '  how to read this:'
+Write-Host '    * chain reaches explorer.exe       -> genuine desktop window: you ARE outside the sandbox'
+Write-Host '    * chain leads to node/dsh/agent    -> this window is a CHILD of the harness: still confined'
+Write-Host '    * ELECTRON_RUN_AS_NODE non-empty   -> harness env (a clean cmd from the Start menu has it empty)'
 
 Write-Host ''
 Write-Host '=== 2. a minimal Electron app (no OMOPredict code involved) ==='
