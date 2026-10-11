@@ -34,7 +34,7 @@ OMO（氧化物/金属/氧化物）纳米多层薄膜仿真设计软件：三层
 
 | **M6-b T6** | ✅ | **桌面 Host 层**（`desktop/src/host/`，**Electron 无关的纯 Node 模块**）：`paths`（D6 数据/日志目录，按目标平台选路径语义）、`logger`（D7 按天日志+保留 7 天，目录不可用则退化为仅回显）、`lines`（JSON-Lines 分帧）、`rpc`（id↔Promise、超时、错误码=HTTP 语义、非法行只报协议错误）、`backend`（spawn/ping/日志捕获/**退出即失效在途请求**/限速重启/超时强杀进程树/stdout 污染容忍）、`engine`（只做 Go 看不到的来源探测 + D9 第 5 级指引）、`singleton`（文件锁）、`host`（组装并注入 D6 环境变量，默认 `OMO_ENGINE_TRANSPORT=stdio`） | `tsc --noEmit` 干净；**91 单测 + 1 集成测试**（真子进程走真管道：分帧/乱序关联/超时/崩溃即在途失败/重启限速/启动失败不重启/锁回收/日志轮转）；**真实端到端**：Host → Go `--stdio` → 真实引擎 → Rs≈3.9708 / T@550nm≈0.9745 / SE@10GHz≈33.70 + **后端无监听端口** + 退出无残留 |
 
-| **M6-b T7** | ✅ | **Electron 壳**：`src/main.ts`（主进程接线：单实例锁 + 聚焦已有窗口、`app://` 协议、菜单、IPC、`will-quit` 回收后端）、`src/preload.ts`（contextBridge **白名单**）、`src/shell/`（与 Electron 解耦的壳逻辑：`appProtocol` app:// 解析 + 目录穿越防护 + CSP/安全头、`channels` IPC 通道与**结果信封**（避免 Electron 压掉 Error 的 `code`）、`preloadBridge`、`menu`、`windowOptions` 安全基线、`backendCommand` 打包/开发期定位、`diagnostics` 脱敏）、`package.json` 的 electron-builder 配置 | `tsc --noEmit` 对**真实 Electron 类型**干净（校验 app/BrowserWindow/protocol/Menu/ipcMain 全部用法）；桌面测试 **12 文件 150 用例**（app:// 穿越 5 变体、CSP 无网络、IPC 信封跨进程、菜单/窗口安全基线、诊断脱敏）；集成测试新增**渲染进程可见链路**（`window.omo.rpc` → 信封 → 真实 Go → 真实引擎，含跨进程 404）——**但壳未实际启动**（无 Electron 二进制，属 T11） |
+| **M6-b T7** | ✅ | **Electron 壳**：`src/main.ts`（主进程接线：单实例锁 + 聚焦已有窗口、`app://` 协议、菜单、IPC、`will-quit` 回收后端）、`src/preload.ts`（contextBridge **白名单**）、`src/shell/`（与 Electron 解耦的壳逻辑：`appProtocol` app:// 解析 + 目录穿越防护 + CSP/安全头、`channels` IPC 通道与**结果信封**（避免 Electron 压掉 Error 的 `code`）、`preloadBridge`、`menu`、`windowOptions` 安全基线、`backendCommand` 打包/开发期定位、`diagnostics` 脱敏）、`package.json` 的 electron-builder 配置 | `tsc --noEmit` 对**真实 Electron 类型**干净（校验 app/BrowserWindow/protocol/Menu/ipcMain 全部用法）；桌面测试 **12 文件 150 用例**（app:// 穿越 5 变体、CSP 无网络、IPC 信封跨进程、菜单/窗口安全基线、诊断脱敏）；集成测试新增**渲染进程可见链路**（`window.omo.rpc` → 信封 → 真实 Go → 真实引擎，含跨进程 404）；**壳已实跑通过**（2026-10，见 §6.35） |
 
 | **M6-c T8** | ✅ | **轻量包**：`scripts/setup-engine.ps1`（uv → pip 两条安装路径 + 发 ping 验证；**任何失败都落进统一的"可操作指引"块**）、`scripts/build-lite.ps1`（渲染产物 + Go 后端 + 引擎源码 + setup 脚本 + README → **体积门禁** → zip；`-AllowMissingShell` 无壳时只暂存并**退出 2**）、`desktop/lite/README.txt` 模板、`scripts/README.md`；CI 加 `packaging` job | 两脚本**实跑**：setup-engine 四条路径（指定解释器 / uv 分支 / 目录非法 / 解释器不存在）全过；build-lite 暂存（退出 2）/完整出包（退出 0，13.9MB）/门禁拦截（退出 1）；集成测试新增**引擎不可用**用例（真实 Go + 不存在解释器 → 任务 `failed`，错误点名失败的命令）。**体积门禁已决**：轻量包保留 Electron → 整包上限由 50MB 放宽到 150MB，另加 **app payload ≤50MB** 紧门禁防依赖泄漏（见 §7 T8 块） |
 
@@ -113,10 +113,13 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
 - `test/fixtures/fake-backend.mjs`：真子进程假后端；`src/host/integration.test.ts` 是环境变量门控的真实端到端测试
   （`OMO_BACKEND_EXE` + `OMO_ENGINE_CMD`，受限环境再加 `OMO_INTEGRATION_DIR`），
   其中第二个用例覆盖**渲染进程可见链路**（`window.omo.rpc` → IPC 信封 → 真实后端）。
-- ⚠️ **壳仍未实际启动过**（2026-10 复核）：Electron 二进制**已经装上了**（见 §6.31），但
-  **DSH 沙箱里 Electron 的浏览器进程起不来**（连 30 行的最小 Electron 程序都在 `app.whenReady()`
-  之前崩），所以窗口/`app://` 渲染/CSP 是否误伤/`window.omo` 注入这几件事**依然一次都没跑过**，属 T11。
-  已加了**冒烟自检钩子**（`OMO_DESKTOP_SMOKE_MS`）让这件事在沙箱外一条命令可判定，见 §6.31。
+- ✅ **壳已实际启动并验证通过**（2026-10，见 §6.35）：窗口建起来、`app://omo/index.html` 渲染成功、
+  CSP 生效且**没有误伤**、preload 注入成功、`window.omo.rpc('meta')` 拿到后端真实数据
+  （`auth_mode: none`、`engine_transport: stdio`），退出干净。
+  一条命令可复现：`powershell -ExecutionPolicy Bypass -File scripts\smoke-desktop.ps1 -SkipBuild`
+  （成功打 `[smoke] OK` + `[smoke] BRIDGE OK` 并退 0）。
+  过程中修掉的四个"只有真跑才会发现"的 bug 见 §6.35；本机需要 `ELECTRON_DISABLE_SANDBOX=1`
+  的机器级原因见 §6.31（脚本会**自动**处理并如实标注）。
 
 ## 5. 文档索引
 
@@ -235,35 +238,70 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
     并自己给含空格的参数加引号。同理，`add_OutputDataReceived` 这类事件式读取不如
     `$process.StandardOutput.ReadLineAsync()` + `Task.Wait(ms)`、`StandardError.ReadToEndAsync()` 可靠
     （stderr 要**并发**抽干，否则管道写满会把子进程卡死）。
-31. **⚠️ Electron 无法在 DSH 沙箱中启动（2026-10 实测，**不是本项目的 bug**）**：此前记录"本环境装不了
-    Electron 二进制"是**错的**——二进制能正常下载（见 §6.32），真正的障碍是**沙箱里 Chromium 起不来**：
-    - 默认启动：`0x80000003`（STATUS_BREAKPOINT / 退出码 -2147483645），**完全没有输出**。
-    - 加 `--no-sandbox`：能进到主进程 JS（打印出 `[mini] main script loaded`），随后 `0xC0000005`
-      （ACCESS_VIOLATION / -1073741819），**死在 `app.whenReady()` 之前**。
-    - 试过 `--disable-gpu` / `--disable-gpu-sandbox` / `--disable-software-rasterizer` /
-      `--use-angle=swiftshader` / `--in-process-gpu` / `--single-process` / `--no-zygote`
-      ——**全都一样崩**。即连 30 行的最小 Electron 程序都起不来，与我们的代码无关。
-    - 唯一能过的是 `electron --version --no-sandbox`（那条路径在 Chromium 初始化前就退出了）。
-    → **结论**：壳的运行期验收（T11）必须在**沙箱外**做。二进制已装好，一条命令即可判定：
-      `cd desktop; $env:OMO_DESKTOP_SMOKE_MS='45000'; $env:OMO_BACKEND_EXE='<后端 exe>'; pnpm exec electron .`
-      成功会打印 `[smoke] OK: renderer loaded app://omo/index.html` 并以 **0** 退出；
-      加载失败/超时则打印原因并以 **1** 退出（钩子见 `desktop/src/main.ts` 的 `attachSmokeHooks`）。
+31. **⚠️ Chromium 起不来：真正的根因（2026-10 实测，"沙箱背锅"是错的）**：这里先后写错过两次结论，
+    把最终确证的**证据与判据**留下，避免第三次误判。
+    - 症状（本机、沙箱内外**完全一致**）：默认启动 `0x80000003`（STATUS_BREAKPOINT / -2147483645）
+      且**零输出**；加 `--no-sandbox` 则 `0xC0000005`（ACCESS_VIOLATION / -1073741819），
+      死在 `app.whenReady()` 之前。`--disable-gpu` / `--in-process-gpu` / `--single-process` /
+      `--no-zygote` / `--use-angle=swiftshader` 全都无效。
+    - **先排除的就是沙箱**：用户在一个**真正的独立窗口**（`WindowsTerminal.exe` 为父进程、
+      `ELECTRON_RUN_AS_NODE` 为空、无 `DSH_*`）里复现了**同一套退出码**。所以这不是 DSH 特有的。
+      → 判据：`scripts/diagnose-electron.ps1` 会打印进程链，链子走到 `explorer.exe`/`WindowsTerminal.exe`
+      才算"在外面"，走到 `DeepSeek Harness.exe` 就是沙箱内。
+    - **已排除**：操作系统版本（本机 Win11 23H2 / 22631，受支持）；第三方杀软（只装了 Defender，
+      且实时保护是关的）；IFEO 调试器劫持（无）；系统级 Exploit Protection（未设置）；
+      WDAC/SAC 拦截记录（CodeIntegrity 日志里没有我们的二进制）；二进制损坏
+      （缓存 zip 的 SHA256 与官方 `11c3958…cb5d` **一致**，且 `--version --no-sandbox` 能跑）。
+    - **`libEGL.dll` / `libGLESv2.dll` 缺失是个假线索**：官方 zip 里本来就没有这两个文件
+      （Chromium 已不再单独分发），别再追。
+    - **实测出来的两个真原因**（见 §6.35 的四个 bug）：
+      1. **user-data 目录不能缺失**：目录预先存在 → 5/5 正常；不存在（让 Chromium 自己建）→ 0/5 崩，
+         而且**它建不出来**。本机 `%APPDATA%\OMOPredict`、`%APPDATA%\omo-mini` 都不存在。
+      2. **Chromium 的进程沙箱本身起不来**：即便 profile 目录就绪，只要**不**加 `--no-sandbox`
+         （或 `ELECTRON_DISABLE_SANDBOX=1`）就仍然 `0x80000003`；加上就能跑。
+         日志里能看到它想建 `GPUPersistentCache` 子目录时拿到 **拒绝访问 (0x5)**。
+    - **可用的判定/绕过**：`$env:ELECTRON_DISABLE_SANDBOX='1'`（**环境变量**在 Chromium 初始化前生效，
+      所以是应用内代码救不了的场景下唯一可用的开关；`app.commandLine.appendSwitch` 太晚了）。
+    → 一条命令判定：`powershell -ExecutionPolicy Bypass -File scripts\smoke-desktop.ps1 -SkipBuild`
+      （成功打印 `[smoke] OK` + `[smoke] BRIDGE OK` 并退出 0）。**本机实测已 PASS**（脚本自动重试）。
 32. **⚠️ `ELECTRON_RUN_AS_NODE=1` 已预设在本会话环境里（2026-10 实测）**：进程环境里有这个变量时，
     `electron.exe` 会**当成纯 Node 运行**——`electron --version` 打印的是 **Node 版本**（如 `v24.21.0`）
     而不是 Electron 版本，且 `require('electron')` 拿不到 `app`/`BrowserWindow`，报错会非常难懂。
     → 启动壳之前先 `Remove-Item Env:ELECTRON_RUN_AS_NODE`。判定真实版本看
     `node_modules/electron/dist/version` 或 exe 的 VersionInfo（应为 `44.4.5`），别信 `--version`。
+    注意它是**逐进程注入**的（不在 HKCU/HKLM 注册表里），所以真正独立的窗口里一定是空的。
 33. **⚠️ 下载 Electron / 走镜像的取舍（2026-10 实测）**：`npmmirror.com` 在本机**超时不可达**
     （设计文档 §7 建议的 `ELECTRON_MIRROR` 反而会让 `install.js` 直接 `fetch failed`）；
     而 `github.com` 正常，用**默认源**下载 `electron-v44.4.5-win32-x64.zip`（约 115MB）成功、
     解包后 `dist` 约 **367MB**，耗时约 5 分钟。所以"拉不动"的结论要按**源**分别试，不要一概而论。
-    另注：`%LOCALAPPDATA%\electron\Cache` 是**全局共享**的，里面可能有别的项目的 zip（见过 v35.7.5），
-    不要据此判断"我们的版本已经下载好了"。
+    缓存实际在 `%LOCALAPPDATA%\electron\Cache\<sha256>\electron-v44.4.5-win32-x64.zip`
+    （**哈希子目录里**，直接列 Cache 根目录会以为它是空的）；且它是全局共享的，可能有别的项目的 zip。
+    ⚠️ **`pnpm install` 会重建 node_modules 从而删掉 Electron 的 dist**（其安装脚本按策略被跳过：
+    见 desktop/pnpm-workspace.yaml 的 allowBuilds），恢复用 `node node_modules/electron/install.js`
+    （有缓存时 3 秒）。smoke 脚本已内置这一步。
 34. **⚠️ 多会话共用一个工作区，提交会互相"扫走"（2026-10 实测）**：本仓库同时被另一个 agent 会话操作，
     它用类似 `git add -A` 的方式提交（`06de9d8 docs: make the English README the primary one` 里
     **混进了我当时未提交的 `main.ts` 冒烟钩子 +35 行**）。因此：**改完就尽快单独提交自己的文件**，
     且提交时**显式列出路径**，不要 `git add -A`，否则会把别人未完成的改动卷进自己的提交。
-    另外它把 `.smoke/` 加进了 `.gitignore`（`0c2c063`）——这个忽略项**建议保留**（见 §6.31 的冒烟用法）。
+    另外它把 `.smoke/` 加进了 `.gitignore`（`0c2c063`）——这个忽略项**建议保留**（见 §6.35）。
+35. **✅ Electron 壳已实跑通过（2026-10，T11 核心项）**：`scripts/smoke-desktop.ps1 -SkipBuild` → exit 0，
+    输出 `[smoke] OK` + `[smoke] BRIDGE OK: window.omo.rpc('meta') -> {"version":"0.1.0","auth_mode":"none",
+    "auth_required":false,"engine_transport":"stdio"}`，即**渲染进程 → preload → IPC → 主进程 → Host →
+    Go 后端 → 引擎**全链路打通（`meta` 是后端真返回的数据），退出干净（`code=0 expected=true`）。
+    首次真跑一次性暴露了**四个只有真跑才会发现的 bug**（都已修）：
+    1. **主进程 ESM 产物加载不了**：tsc 的 ESM 输出不给相对导入加 `.js`，Node 的 ESM 加载器要求后缀
+       → `ERR_MODULE_NOT_FOUND: dist/main/host/host`。→ 改为 **CommonJS** + `__dirname`。
+    2. **沙箱化的 preload 不支持相对 require**：原来编译成多个 CJS 模块，桥是**断的**
+       （`module not found: ./shell/preloadBridge`）。页面照样渲染，只是 `window.omo` 不存在，
+       前端静默退回 HTTP 再被 CSP 挡掉——**这种失败用假 ipcRenderer 的单测永远测不出来**。
+       → 改用 **esbuild 打成单文件**（1507 B，零相对 require）。
+    3. **user-data 目录必须预先存在**（见 §6.31）：主进程现在在任何 Chromium 初始化前自己 mkdir，
+       并尊重调用方显式给的 `--user-data-dir`。
+    4. 冒烟钩子用了 Electron 44 已废弃的 `console-message` 多参数签名。
+    → 冒烟自检也从"页面加载成功"升级为**在渲染进程里真调一次 `window.omo.rpc('meta')`**：
+    只渲染成功打 `PARTIAL` 并退 1，桥不通绝不冒充成功。
+    仍未做：**electron-builder 实跑**（完整包/轻量包的最终产物形态）、安装包在**净机**上的验收。
+
 
 ## 7. 未完成事项与后续计划
 
@@ -392,15 +430,17 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
   产物中 `torch`/`fastapi`/`uvicorn`/`matplotlib` **均 0 条目**、sidecar 又能算对结果，
   说明这是 numpy/scipy 的固有开销而不是依赖泄漏。
 - ⏳ **T9 剩余**：`start-local.ps1`（HTTP 模式无壳调试 + 开浏览器）、Release 上传与 SHA256 清单、
-  CI 补齐"完整包 job"（需 Electron 二进制；**二进制现已就位**，卡点是沙箱起不了 Chromium，见 §6.31）。
+  CI 补齐"完整包 job"（**二进制与壳均已就位并实跑通过**，见 §6.35；CI 里需注意 Electron 需要图形环境，
+  以及本机那种"Chromium 沙箱起不来"的机器要用 `ELECTRON_DISABLE_SANDBOX=1`）。
 
-**M6-d T10–T11 —— ⏳ 待做**：文档收尾、净机验收。
-> ⚠️ **T11 必须验证的第一件事**：**壳能否真的启动并渲染**
-> （窗口、`app://` 加载 `frontend/dist`、CSP 是否误伤 Vue/ECharts 的行内样式、preload 是否成功注入 `window.omo`）。
-> 2026-10 复核：**二进制不再是障碍**（已装好 Electron 44.4.5），障碍变成"DSH 沙箱里 Chromium 起不来"——
-> 最小 Electron 程序都会在 `app.whenReady()` 之前崩（证据与两个退出码见 §6.31），因此这几件事**仍未跑过**。
-> 请在**沙箱外**（普通终端）用一行命令判定：`OMO_DESKTOP_SMOKE_MS=45000 pnpm exec electron .`（见 §6.31）。
-> 补充：**`electron-builder` 也从未实跑过**，所以"完整包/轻量包的最终产物形态"仍属 T11；
+**M6-d T10–T11 —— ⏳ 部分完成**：文档收尾进行中；**净机验收的第一件事已做完**。
+> ✅ **"壳能否真的启动并渲染"已实测通过**（2026-10，§6.35）：窗口、`app://` 加载 `frontend/dist`、
+> CSP 未误伤、preload 注入成功、`window.omo.rpc('meta')` 返回后端真实数据、退出干净。
+> 一条命令复现：`powershell -ExecutionPolicy Bypass -File scripts\smoke-desktop.ps1 -SkipBuild`。
+> 这一趟一次性修掉四个真 bug（ESM 产物加载不了 / 沙箱化 preload 不支持相对 require /
+> user-data 目录必须预建 / 废弃的 console-message 签名），详见 §6.35。
+> ⏳ **仍未做**：**`electron-builder` 从未实跑**，所以"完整包/轻量包的最终产物形态"仍属 T11；
+> 以及安装到**另一台干净机器**上的验收（本机有 Chromium 沙箱起不来的机器级问题，见 §6.31）。
 > 目前只验到了它的**输入**（壳 TS、Go 后端、PyInstaller sidecar）与布局契约。
 > 注意 stdio 传输下 **stdout 只能是协议流**（引擎与 Go 的日志都必须在 stderr，见 §6.15）。
 

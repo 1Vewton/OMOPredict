@@ -15,29 +15,38 @@
 **Both the Host layer and the shell logic deliberately do not depend on Electron** (`src/host/` and `src/shell/` are pure Node modules), so the vast majority of the
 code can be unit-tested in a GUI-less environment; only `src/main.ts` / `src/preload.ts` are Electron wiring.
 
-> ⚠️ **The shell still has not actually been launched** (rechecked 2026-10): the Electron binary **is
-> now installed** (44.4.5, `dist` about 367MB), but **Electron's browser process cannot start inside the
-> DSH sandbox** — even a 30-line minimal Electron app crashes before `app.whenReady()`
-> (`0x80000003` by default; `0xC0000005` with `--no-sandbox`; every GPU/process flag tried made no difference).
-> So "the window can open, `app://` can render `frontend/dist`, CSP does not accidentally break
-> Vue/ECharts inline styles, and preload injects `window.omo`" have **still not been run** —
-> they belong to the **T11 clean-machine acceptance** in docs/desktop.md §10.
+> ✅ **The shell has now actually been launched and verified** (2026-10): the window opens, `app://`
+> renders `frontend/dist`, CSP does not break anything, preload injects `window.omo`, and **IPC was
+> exercised from inside the renderer** (`window.omo.rpc('meta')` returned real backend data).
+> The first real run surfaced four genuine bugs in one go (ESM output that could not be loaded /
+> a sandboxed preload that cannot use relative `require` / the user-data directory having to
+> pre-exist / a deprecated `console-message` signature) — see `docs/HANDOVER.md` §6.35.
+> ⚠️ This machine has a machine-level problem: Chromium's process sandbox cannot start, so it needs
+> `ELECTRON_DISABLE_SANDBOX=1` (see HANDOVER §6.31; the smoke script below **retries automatically**
+> and says so explicitly). ⏳ Still not done: running `electron-builder` and acceptance on a second,
+> clean machine (part of T11).
 
 ## Smoke check (one command to decide whether the shell runs)
 
-The shell has a built-in smoke hook (`OMO_DESKTOP_SMOKE_MS`, see `attachSmokeHooks` in `src/main.ts`):
-if the renderer loads it prints `[smoke] OK` and exits **0**; on load failure or timeout it prints the
-reason and exits **1**, forwarding the renderer console to the main-process stdout (CSP blocks and
-preload-injection failures show up as console errors).
-
 ```powershell
-cd desktop
-pnpm build                                                  # main -> ESM / preload -> CJS
-Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue   # see warning below
-$env:OMO_BACKEND_EXE = "<repo>\server\omopredict.exe"        # build it first with go build
-$env:OMO_DESKTOP_SMOKE_MS = '45000'
-pnpm exec electron .
+powershell -ExecutionPolicy Bypass -File scripts\smoke-desktop.ps1 -SkipBuild
 ```
+
+It exits **0** on PASS and **1** on failure with the reason printed. It clears `ELECTRON_RUN_AS_NODE`
+itself, restores the Electron binary if needed, detects whether it is running inside the harness, and
+if step 5 dies natively before our code runs, retries once with `ELECTRON_DISABLE_SANDBOX=1` plus a
+pre-created `--user-data-dir`.
+
+The verdict (`attachSmokeHooks` in `src/main.ts`, enabled by `OMO_DESKTOP_SMOKE_MS`):
+
+| Output | Meaning | Exit code |
+|---|---|---|
+| `[smoke] OK` + `[smoke] BRIDGE OK` | rendered **and** IPC reached the backend (a real `meta` call) | 0 |
+| `[smoke] OK` but `BRIDGE FAIL` | the page rendered, but preload/bridge is broken | 1 |
+| `[smoke] FAIL` | load failed or timed out | 1 |
+
+The renderer console is forwarded to the main-process stdout — CSP blocks and preload-injection
+failures show up exactly as console errors.
 
 > ⚠️ **You must clear `ELECTRON_RUN_AS_NODE` first**: when that variable is set, `electron.exe` behaves
 > as plain Node (`electron --version` prints the *Node* version and `require('electron')` has no `app`),

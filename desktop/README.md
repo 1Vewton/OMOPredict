@@ -15,26 +15,34 @@
 **Host 层与壳逻辑都刻意不依赖 Electron**（`src/host/`、`src/shell/` 是纯 Node 模块），因此绝大部分
 代码能在无 GUI 环境下单测；只有 `src/main.ts` / `src/preload.ts` 是 Electron 接线。
 
-> ⚠️ **壳仍未实际启动过**（2026-10 复核）：Electron 二进制**已装好**（44.4.5，`dist` 约 367MB），
-> 但 **DSH 沙箱里 Electron 的浏览器进程起不来**——连 30 行的最小 Electron 程序都在 `app.whenReady()`
-> 之前崩（默认 `0x80000003`；加 `--no-sandbox` 后 `0xC0000005`；各种 GPU/进程开关都无效）。
-> 因此"窗口能打开、`app://` 能渲染 `frontend/dist`、CSP 没误伤 Vue/ECharts 的行内样式、
-> preload 成功注入 `window.omo`"这几件事**仍未跑过** —— 属 docs/desktop.md §10 的 **T11 净机验收**。
+> ✅ **壳已实测启动并验证通过**（2026-10）：窗口能打开、`app://` 能渲染 `frontend/dist`、
+> CSP 未误伤、preload 成功注入 `window.omo`，且**在渲染进程里真调通了 IPC**
+> （`window.omo.rpc('meta')` 返回后端真实数据）。首次真跑一次性修掉四个真 bug
+> （ESM 产物加载不了 / 沙箱化 preload 不支持相对 require / user-data 目录必须预建 /
+> 废弃的 console-message 签名），详见 `docs/HANDOVER.md` §6.35。
+> ⚠️ 本机有机器级问题：Chromium 的进程沙箱起不来，需要 `ELECTRON_DISABLE_SANDBOX=1`
+> （见 HANDOVER §6.31；下面的冒烟脚本会**自动重试**并如实标注）。
+> ⏳ 仍未做：`electron-builder` 实跑与装到另一台干净机器上的验收（属 T11）。
 
 ## 冒烟自检（一条命令判定壳能不能跑）
 
-壳里内置了冒烟钩子（`OMO_DESKTOP_SMOKE_MS`，见 `src/main.ts` 的 `attachSmokeHooks`）：
-渲染进程加载成功 → 打印 `[smoke] OK` 并退出 **0**；加载失败/超时 → 打印原因并退出 **1**，
-同时把渲染进程的 console 转发到主进程 stdout（CSP 拦截、preload 注入失败都以 console 报错的形式出现）。
-
 ```powershell
-cd desktop
-pnpm build                                                  # main→ESM / preload→CJS
-Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue   # ⚠️ 见下
-$env:OMO_BACKEND_EXE = "<仓库>\server\omopredict.exe"        # 先 go build 出后端
-$env:OMO_DESKTOP_SMOKE_MS = '45000'
-pnpm exec electron .
+powershell -ExecutionPolicy Bypass -File scripts\smoke-desktop.ps1 -SkipBuild
 ```
+
+PASS 退出 **0**，失败退出 **1** 并打印原因。它自己会：清 `ELECTRON_RUN_AS_NODE`、
+必要时补 Electron 二进制、判断是否跑在 harness 里、以及在第 5 步遇到"我们的代码还没跑就原生崩"时
+自动用 `ELECTRON_DISABLE_SANDBOX=1` + 预建 `--user-data-dir` 重试一次。
+
+判据（`src/main.ts` 的 `attachSmokeHooks`，用 `OMO_DESKTOP_SMOKE_MS` 启用）：
+
+| 输出 | 含义 | 退出码 |
+|---|---|---|
+| `[smoke] OK` + `[smoke] BRIDGE OK` | 渲染成功**且** IPC 通到后端（真调了一次 `meta`） | 0 |
+| `[smoke] OK` 但 `BRIDGE FAIL` | 页面渲染了，但 preload/桥有问题 | 1 |
+| `[smoke] FAIL` | 加载失败或超时 | 1 |
+
+渲染进程的 console 会转发到主进程 stdout —— CSP 拦截、preload 注入失败正是以 console 报错出现的。
 
 > ⚠️ **必须先清掉 `ELECTRON_RUN_AS_NODE`**：该变量存在时 `electron.exe` 会当纯 Node 跑
 > （`electron --version` 打印的是 Node 版本，`require('electron')` 拿不到 `app`），报错极难懂。
