@@ -2,15 +2,16 @@
 
 > **中文** · [English version](README.en.md)
 
-> 设计见 [`docs/desktop.md`](../docs/desktop.md)；本目录当前实现 **T6（Host 层）**。
+> 设计见 [`docs/desktop.md`](../docs/desktop.md)；本目录实现 **T6（Host 层）+ T7（Electron 壳）**。
 
 ## 状态
 
 | 任务 | 状态 | 说明 |
 |---|---|---|
 | **T6 Host 层** | ✅ 完成 | `src/host/`：目录/日志/单实例/引擎来源/Go 子进程守护 + stdio JSON-RPC 客户端 |
-| **T7 Electron 壳** | ✅ 完成（**未跑过启动**） | `src/main.ts` + `src/preload.ts` + `src/shell/`；`tsc --noEmit` 对真实 Electron 类型干净，150 单测 |
-| T8 轻量包 / T9 打包与 CI | ⏳ 待做 | `setup-engine.ps1`、`build-desktop.ps1` / `build-lite.ps1`、体积门禁 |
+| **T7 Electron 壳** | ✅ 完成（**已跑过启动**，见下） | `src/main.ts` + `src/preload.ts` + `src/shell/`；`tsc --noEmit` 对真实 Electron 类型干净，**184 单测** |
+| T8 轻量包 / T9 打包·调试桥·发布 | ✅ 完成 | 脚本在 `../scripts/`：`setup-engine.ps1`、`build-lite.ps1`、`build-desktop.ps1`、`rpc-cli.ps1`、`start-local.ps1`（+ 调试桥）、`release-manifest.ps1` |
+| T10 文档 / T11 净机验收 | ⏳ 待做 | 剩下的是 `electron-builder` 实跑与"装到另一台干净机器"的验收 |
 
 **Host 层与壳逻辑都刻意不依赖 Electron**（`src/host/`、`src/shell/` 是纯 Node 模块），因此绝大部分
 代码能在无 GUI 环境下单测；只有 `src/main.ts` / `src/preload.ts` 是 Electron 接线。
@@ -23,6 +24,10 @@
 > ⚠️ 本机有机器级问题：Chromium 的进程沙箱起不来，需要 `ELECTRON_DISABLE_SANDBOX=1`
 > （见 HANDOVER §6.31；下面的冒烟脚本会**自动重试**并如实标注）。
 > ⏳ 仍未做：`electron-builder` 实跑与装到另一台干净机器上的验收（属 T11）。
+
+> 💡 **不想装 Electron 二进制、只想看 UI 与整条链路？** 用 `scripts\start-local.ps1`：
+> 它起一个本地调试桥（HTTP ↔ Go `--stdio` ↔ 引擎）并托管 `frontend/dist`，浏览器直接访问即可。
+> 这是同一棵"无端口"进程树，只是多了一个仅回环的调试入口。
 
 ## 冒烟自检（一条命令判定壳能不能跑）
 
@@ -142,4 +147,5 @@ pnpm exec electron dist/main.js
 ```
 
 > ⚠️ 上面的第 3 步依赖 T9 的构建脚本（当前 `tsconfig.json` 是 `noEmit`，且 preload 需输出 `.cjs`）。
-> 在 T9 补齐之前，**运行方式尚未定型**；这也是"壳未跑过启动"的一部分原因。
+> 现在直接跑交付好的脚本更省事：`powershell -ExecutionPolicy Bypass -File scripts\build-desktop.ps1`
+> （或 `-SkipPackaging` 只做到壳 TS + 门禁），随后用 `scripts\smoke-desktop.ps1` 一键判定能否启动。

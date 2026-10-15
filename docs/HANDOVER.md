@@ -2,7 +2,7 @@
 
 > 给**后续 agent** 的当前状态与续接指南。请先读本文件与 `AGENTS.md`（项目宪法），
 > 再按需阅读下文文档索引中的对应文档。
-> 最后更新：M6-a（桌面版 T1–T4）完成（2026-09）。
+> 最后更新：T9 完成（`start-local.ps1` + HTTP↔stdio 调试桥、`release-manifest.ps1` + tag 触发 release job）（2026-10）。
 
 ## 1. 项目一句话
 
@@ -34,15 +34,15 @@ OMO（氧化物/金属/氧化物）纳米多层薄膜仿真设计软件：三层
 
 | **M6-b T6** | ✅ | **桌面 Host 层**（`desktop/src/host/`，**Electron 无关的纯 Node 模块**）：`paths`（D6 数据/日志目录，按目标平台选路径语义）、`logger`（D7 按天日志+保留 7 天，目录不可用则退化为仅回显）、`lines`（JSON-Lines 分帧）、`rpc`（id↔Promise、超时、错误码=HTTP 语义、非法行只报协议错误）、`backend`（spawn/ping/日志捕获/**退出即失效在途请求**/限速重启/超时强杀进程树/stdout 污染容忍）、`engine`（只做 Go 看不到的来源探测 + D9 第 5 级指引）、`singleton`（文件锁）、`host`（组装并注入 D6 环境变量，默认 `OMO_ENGINE_TRANSPORT=stdio`） | `tsc --noEmit` 干净；**91 单测 + 1 集成测试**（真子进程走真管道：分帧/乱序关联/超时/崩溃即在途失败/重启限速/启动失败不重启/锁回收/日志轮转）；**真实端到端**：Host → Go `--stdio` → 真实引擎 → Rs≈3.9708 / T@550nm≈0.9745 / SE@10GHz≈33.70 + **后端无监听端口** + 退出无残留 |
 
-| **M6-b T7** | ✅ | **Electron 壳**：`src/main.ts`（主进程接线：单实例锁 + 聚焦已有窗口、`app://` 协议、菜单、IPC、`will-quit` 回收后端）、`src/preload.ts`（contextBridge **白名单**）、`src/shell/`（与 Electron 解耦的壳逻辑：`appProtocol` app:// 解析 + 目录穿越防护 + CSP/安全头、`channels` IPC 通道与**结果信封**（避免 Electron 压掉 Error 的 `code`）、`preloadBridge`、`menu`、`windowOptions` 安全基线、`backendCommand` 打包/开发期定位、`diagnostics` 脱敏）、`package.json` 的 electron-builder 配置 | `tsc --noEmit` 对**真实 Electron 类型**干净（校验 app/BrowserWindow/protocol/Menu/ipcMain 全部用法）；桌面测试 **12 文件 150 用例**（app:// 穿越 5 变体、CSP 无网络、IPC 信封跨进程、菜单/窗口安全基线、诊断脱敏）；集成测试新增**渲染进程可见链路**（`window.omo.rpc` → 信封 → 真实 Go → 真实引擎，含跨进程 404）；**壳已实跑通过**（2026-10，见 §6.35） |
+| **M6-b T7** | ✅ | **Electron 壳**：`src/main.ts`（主进程接线：单实例锁 + 聚焦已有窗口、`app://` 协议、菜单、IPC、`will-quit` 回收后端）、`src/preload.ts`（contextBridge **白名单**）、`src/shell/`（与 Electron 解耦的壳逻辑：`appProtocol` app:// 解析 + 目录穿越防护 + CSP/安全头、`channels` IPC 通道与**结果信封**（避免 Electron 压掉 Error 的 `code`）、`preloadBridge`、`menu`、`windowOptions` 安全基线、`backendCommand` 打包/开发期定位、`diagnostics` 脱敏）、`package.json` 的 electron-builder 配置 | `tsc --noEmit` 对**真实 Electron 类型**干净（校验 app/BrowserWindow/protocol/Menu/ipcMain 全部用法）；桌面测试 **13 文件 184 用例**（app:// 穿越 5 变体、CSP 无网络、IPC 信封跨进程、菜单/窗口安全基线、诊断脱敏、**调试桥路由/静态托管**）；集成测试新增**渲染进程可见链路**（`window.omo.rpc` → 信封 → 真实 Go → 真实引擎，含跨进程 404）；**壳已实跑通过**（2026-10，见 §6.35） |
 
 | **M6-c T8** | ✅ | **轻量包**：`scripts/setup-engine.ps1`（uv → pip 两条安装路径 + 发 ping 验证；**任何失败都落进统一的"可操作指引"块**）、`scripts/build-lite.ps1`（渲染产物 + Go 后端 + 引擎源码 + setup 脚本 + README → **体积门禁** → zip；`-AllowMissingShell` 无壳时只暂存并**退出 2**）、`desktop/lite/README.txt` 模板、`scripts/README.md`；CI 加 `packaging` job | 两脚本**实跑**：setup-engine 四条路径（指定解释器 / uv 分支 / 目录非法 / 解释器不存在）全过；build-lite 暂存（退出 2）/完整出包（退出 0，13.9MB）/门禁拦截（退出 1）；集成测试新增**引擎不可用**用例（真实 Go + 不存在解释器 → 任务 `failed`，错误点名失败的命令）。**体积门禁已决**：轻量包保留 Electron → 整包上限由 50MB 放宽到 150MB，另加 **app payload ≤50MB** 紧门禁防依赖泄漏（见 §7 T8 块） |
 
-| **M6-c T9** | 🔶 部分 | **契约 + 脚本 + CI**：`scripts/rpc-cli.ps1`（stdio 调试客户端：ping / tasks.list / 未知方法 `-32601` / 直连引擎 / 坏 JSON 本地校验）、`scripts/build-desktop.ps1`（完整包：渲染 + Go + **PyInstaller onedir sidecar** + 壳 TS → electron-builder → 三道门禁）、壳 TS 编译管线（`tsconfig.build.json` = ESM、`tsconfig.preload.json` = CJS + `{"type":"commonjs"}`）、CI `desktop` job 加 `pnpm build`、`packaging` job 加 rpc-cli 冒烟 | 两脚本**实跑**：rpc-cli 四种情形全过；build-desktop `-SkipPackaging` 全流程通过（engine dir **165.64MB** / payload 27.09MB / 退出 2）；**打出的 sidecar 真的能算**——把 `OMO_ENGINE_CMD` 指向它跑集成测试 **3/3 通过**（Rs≈3.9708，全程无 Python），产物中 torch/fastapi/uvicorn/matplotlib **0 条目**。⏳ 未做：`start-local.ps1`、Release 上传 + SHA256、electron-builder 实跑（需 Electron 二进制） |
+| **M6-c T9** | ✅ | **契约 + 脚本 + CI + 发布**：`scripts/rpc-cli.ps1`（stdio 调试客户端）、`scripts/build-desktop.ps1`（完整包 + PyInstaller onedir sidecar + 三道门禁）、壳 TS 编译管线、**`scripts/start-local.ps1` + `local-bridge.mjs`（HTTP↔stdio 调试桥）**、**`scripts/release-manifest.ps1`（SHA256 清单 + `-Verify`）**、CI `desktop`/`packaging` 补齐、**tag 触发的 `release` job** | 脚本全部**实跑**：rpc-cli 四种情形；build-desktop `-SkipPackaging`（engine dir 165.64MB / payload 27.09MB / 退出 2）且 sidecar 真能算（3/3）；**start-local 全链路**：`/health`、`/api/meta`、建任务 → **Rs=3.970819 / T@550nm=0.974497 / SE@10GHz=33.7036**、SPA 回退、删除任务、退出无残留；**release-manifest**：生成 → 校验通过 → 篡改必失败 → 空/缺目录退出 1。桥核心 **33 单测**。⏳ 未做：electron-builder 实跑与完整包进 Release（属 T11，需 Windows GUI 目标） |
 
-测试现状：Python **132 passed / ruff 0**（2026-09 文件权限修复后不再有 tmp_path 报错，见 §6.22；此前记录的"128 passed + 4 个 PermissionError"已过时）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流、单用户模式与 **12 个 stdio 引擎用例**）；前端 `pnpm lint` 0 告警 + `pnpm test`（**vitest：5 文件 60 用例**）+ `pnpm build`（`vue-tsc -b` + `vite build`）通过；桌面 `desktop/`：`pnpm type-check`（含真实 Electron 类型）+ `pnpm build`（main ESM / preload CJS）+ `pnpm test`（**12 文件 150 用例**，
+测试现状：Python **132 passed / ruff 0**（2026-09 文件权限修复后不再有 tmp_path 报错，见 §6.22；此前记录的"128 passed + 4 个 PermissionError"已过时）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流、单用户模式与 **12 个 stdio 引擎用例**）；前端 `pnpm lint` 0 告警 + `pnpm test`（**vitest：5 文件 60 用例**）+ `pnpm build`（`vue-tsc -b` + `vite build`）通过；桌面 `desktop/`：`pnpm type-check`（含真实 Electron 类型）+ `pnpm build`（main ESM / preload CJS）+ `pnpm test`（**13 文件 184 用例**，其中 33 个覆盖 `scripts/lib/local-bridge.mjs`，
 另有 3 个需环境变量门控的真实端到端集成用例，已实跑通过——包括对着 **PyInstaller 打出的 sidecar** 跑）通过；
-`scripts/` 四个脚本本机实跑过（见 §7 的 T8/T9 块）。
+`scripts/` 六个脚本本机实跑过（见 §7 的 T8/T9 块；本机没有 `pwsh`，见 §6.39）。
 
 ## 3. 三层架构与启动
 
@@ -301,6 +301,39 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
     → 冒烟自检也从"页面加载成功"升级为**在渲染进程里真调一次 `window.omo.rpc('meta')`**：
     只渲染成功打 `PARTIAL` 并退 1，桥不通绝不冒充成功。
     仍未做：**electron-builder 实跑**（完整包/轻量包的最终产物形态）、安装包在**净机**上的验收。
+36. **⚠️ 引擎 stderr 在 Windows 上是 ANSI 编码，会与 Go 日志混成乱码（2026-10 实测）**：
+    把 Go 的 stderr（UTF-8，正常）与引擎的 stderr 一起收进同一个日志文件时，**引擎那几行是乱码**：
+
+    ```
+    2026/10/15 ... rpc mode: stdio（JSON-RPC over stdin/stdout；日志输出到 stderr）   <- Go，正常
+    omo rpc: stdio JSON-RPC ������omo 0.1.0����־�� stderr��                          <- 引擎，乱码
+    ```
+
+    原因：Python 在 Windows 上默认用 **ANSI 代码页**（本机 GBK）编码 stderr，而 Go 写的是 UTF-8 字节。
+    引擎是 Go 的**孙进程**，所以只能在**上游**把编码定死：
+    → 拉起的进程环境里加 `PYTHONUTF8=1` + `PYTHONIOENCODING=utf-8`。
+    已落在两处：`scripts/local-bridge.mjs`（调试桥）与 `desktop/src/host/host.ts` 的
+    `buildBackendEnv`（壳的 Host 层，那里也会把后端 stderr 写进 `logs/backend.log` 与诊断包）。
+    排障时的迷惑点：**同一份日志里 Go 行正常、引擎行乱码**，很容易误判成"引擎挂了/协议坏了"；
+    实际上只是编码。修好后两边的中文都能正常读。
+37. **⚠️ `Start-Process` 不允许 stdout 与 stderr 指向同一个文件（2026-10 实测）**：
+    `-RedirectStandardOutput $f -RedirectStandardError $f` 在 Windows PowerShell 5.1 上直接报
+    "无法运行此命令，因为 RedirectStandardOutput 和 RedirectStandardError 相同"，
+    而且**报错发生在启动之前**，脚本会以为"子进程起不来"。→ 写成两个文件（`*.stdout.log` /
+    `*.stderr.log`），报错时两个都 tail。`start-local.ps1` 就是这么做的。
+    另注：`-NoNewWindow` 与任何输出重定向**不能同时用**。
+38. **⚠️ PowerShell 的 `-f` 不接受逗号列表当参数数组（2026-10 实测）**：
+    `"... {0} {1} {2}" -f $a, $b + '...', $c` 会解析成意外的东西，报
+    "Error formatting a string: Index (zero based) must be greater than or equal to zero and less than
+    the size of the argument list"。→ 先把每个值算成变量，再显式传**一个数组**：
+    `-f @($a, $b, $c)`。`release-manifest.ps1` 与 `build-desktop.ps1` 都按这个写法。
+39. **⚠️ 本机没有 `pwsh`，只有 Windows PowerShell 5.1（2026-10 实测）**：
+    `pwsh` 不在 PATH 上（`Get-Command pwsh` 失败），所以
+    `pwsh -File scripts\xxx.ps1` 这条**文档里到处在用的命令在本机跑不了**；直接 `& .\scripts\xxx.ps1`
+    又会被执行策略挡住（`AuthorizationManager 检查失败`）。可用的形式是
+    `& powershell -NoProfile -ExecutionPolicy Bypass -File scripts\xxx.ps1`。
+    §7 常用命令里保留 `pwsh`/`powershell` 的通用写法是因为 **CI 与其它机器上 `pwsh` 是有的**
+    （CI 用 `shell: pwsh`），本机复现时按上面替换即可。
 
 
 ## 7. 未完成事项与后续计划
@@ -429,9 +462,28 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
   远超设计初稿 90MB 的估计（当时估"50–90MB"）。engine dir 门禁放宽到 **250MB**；
   产物中 `torch`/`fastapi`/`uvicorn`/`matplotlib` **均 0 条目**、sidecar 又能算对结果，
   说明这是 numpy/scipy 的固有开销而不是依赖泄漏。
-- ⏳ **T9 剩余**：`start-local.ps1`（HTTP 模式无壳调试 + 开浏览器）、Release 上传与 SHA256 清单、
-  CI 补齐"完整包 job"（**二进制与壳均已就位并实跑通过**，见 §6.35；CI 里需注意 Electron 需要图形环境，
-  以及本机那种"Chromium 沙箱起不来"的机器要用 `ELECTRON_DISABLE_SANDBOX=1`）。
+- ✅ **T9 尾项已完成（2026-10）**：
+  - `scripts/start-local.ps1` + `scripts/local-bridge.mjs`（+ `scripts/lib/local-bridge.mjs` 核心、`lib/local-bridge.d.mts` 类型）：
+    **HTTP ↔ stdio 调试桥**，让"全程不监听端口"的进程树能在普通浏览器里跑起来。
+    `浏览器 --HTTP--> 桥 --stdio JSON-RPC--> Go --stdio JSON-RPC--> 引擎`；
+    整棵树只有桥监听一个回环端口。桥是**调试工具**：只跟自己拉起的子进程说话、默认绑 `127.0.0.1`、
+    路由表是**封闭白名单**（没有通用转发）。桥的核心（路由映射 / JSON-Lines 客户端 / 静态托管 +
+    目录穿越防护）是零依赖纯模块，由 `desktop/src/shell/localBridge.test.ts` 覆盖（**33 用例**）。
+    实测：`Rs = 3.970819`、`T@550nm = 0.974497`、`SE@10GHz = 33.7036`（与契约一致）、
+    SPA 深链回退、`/api/auth/me` 本地回答、删除任务、Ctrl+C 后端口释放无残留。
+    期间修的真实问题：POSIX 上反斜杠路径会**静默退化成 SPA 回退**（掩盖穿越尝试）→ 显式拒绝；
+    引擎 stderr 编码（见 §6.36）；`Start-Process` 同文件重定向限制（见 §6.37）。
+  - `scripts/release-manifest.ps1`：产物 → `SHA256SUMS.txt`（`sha256sum` 兼容、UTF-8 无 BOM、仅 LF）
+    + `omopredict-<version>.json`（version/commit/每产物 hash+size）；`-Verify` 逐条反查。
+    只收 `-InputDir` 的**直接子文件**（排除 `*.json`），`-Include` 可显式补充。
+    实测：生成 → 校验通过 → 篡改一字节 → **必须失败**（退出 1）；空目录/不存在目录都退出 1。
+  - CI：`packaging` job 新增两步（`start-local.ps1` 在空目录里必须"可操作地失败"；
+    release-manifest 往返 + 篡改必失败）；新增 **`release` job**（`v*` tag 触发）：
+    版本一致性守卫（tag 去掉 `v` 必须等于 `desktop/package.json` 的 version）→ 真打轻量包 →
+    生成清单 → **发布前用清单校验自己** → `gh release create` 上传 → run summary 写明
+    完整包仍需本地 Windows 构建并手工附上。
+- ⏳ **T9 未做**：**完整包进 Release**（`build-desktop.ps1` 要 electron-builder 的 Windows 目标，
+  在 ubuntu runner 上打不出来，故由 release job 明确交回本机），以及 electron-builder 本身（属 T11）。
 
 **M6-d T10–T11 —— ⏳ 部分完成**：文档收尾进行中；**净机验收的第一件事已做完**。
 > ✅ **"壳能否真的启动并渲染"已实测通过**（2026-10，§6.35）：窗口、`app://` 加载 `frontend/dist`、
@@ -454,14 +506,22 @@ NN 代理 v2（材料参数入特征 / 逆向设计）。
 1. 读 `AGENTS.md` §6 守则 + 本文件 §6 环境坑
 2. 跑通现有验证：`cd engine && uv run --all-extras pytest -q`（**132 passed**）、`cd server && go test ./...`、
    `cd frontend && pnpm lint && pnpm test && pnpm build`、`cd desktop && pnpm type-check && pnpm test`
-   （**注意 §6.11/§6.22/§6.23**：沙箱文件权限与 `%TEMP%` 写入限制会让 vite/esbuild、node_modules 与 SQLite 失败）
-3. 若续做桌面版：**T1–T8 完成、T9 大部分完成**，剩余 **`start-local.ps1`、Release 上传 + SHA256、CI 完整包 job**；
+   （**注意 §6.11/§6.22/§6.23**：沙箱文件权限与 `%TEMP%` 写入限制会让 vite/esbuild、node_modules 与 SQLite 失败；
+   本机 `desktop` 的 `pnpm test` 可能因 pnpm 判定 node_modules 过期而中止，可直接跑
+   `desktop\node_modules\.bin\vitest.cmd run` 绕过，见 §6.39 那条的同类环境问题）
+3. 若续做桌面版：**T1–T9 全部完成**，剩下的是 **T10 文档收尾 + T11 净机验收**（**electron-builder 从未实跑**、
+   完整包进 Release 需在本地 Windows 上做、装上另一台干净机器验收）；
    装上 Electron 二进制后请**先做 T11 的运行期验收**（壳启动/渲染/CSP/preload，见下）；
    动手前注意：体积门禁**已决**（轻量包 150MB + payload 50MB + 引擎目录 250MB，见 §7 T8/T9 块），无需再定夺；
    Host 与壳的接线面见 `desktop/README.md`（`Host.invoke` / `Host.onEvent` / `Host.dispose`，
-   以及 `src/shell/` 里已固化的 `window.omo` 契约）；打包脚本见 `scripts/README.md`；
+   以及 `src/shell/` 里已固化的 `window.omo` 契约）；打包与调试脚本见 `scripts/README.md`；
+   **想最快看到整条链路跑起来**：`scripts\start-local.ps1`（浏览器 + 无端口全链路，不需要 Electron）；
    手工联调桌面链路（无端口）：`OMO_AUTH_MODE=none OMO_ENGINE_TRANSPORT=stdio OMO_ENGINE_CMD='python -m omo.rpc' ./omopredict --stdio`，
    或用 `OMO_ENGINE_CMD` 指向 `engine/.venv/Scripts/python.exe -m omo.rpc`；
    RPC 契约见 `docs/api/rpc.md`；若续做 M5 剩余，先 `uv run omo-cli optimize ...` 冒烟再接 API/前端
 4. 改动物理模型时：更新 docs/physics + 重跑 benchmark（守则 §2/§3）
 5. 提交规范：Conventional Commits；每里程碑可运行 + 测试 + 文档
+6. 发版：打 `v<version>` tag（**必须与 `desktop/package.json` 的 version 一致**，release job 会拦）→
+   release job 产出轻量包 + SHA256 清单 + JSON 清单；**完整包在本机 Windows 上用
+   `scripts\build-desktop.ps1` 构建后手工附到同一个 Release**，附完重新生成清单以覆盖其哈希
+   （`powershell -File scripts\release-manifest.ps1 -InputDir desktop\release -OutDir dist\release`）。

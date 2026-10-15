@@ -187,6 +187,48 @@ jobs:
           Write-Host 'all scripts are ASCII-only'
           exit 0
 
+      # start-local.ps1 的参数解析与"可操作失败"路径：把脚本复制进一个空目录，frontend/ 与
+      # server/ 都不存在，脚本必须退出 1 并打印 What to check（而不是抛 PowerShell 堆栈）。
+      # 这样无需 pnpm/Go/Electron 就能覆盖它的失败路径。
+      - name: start-local fails actionably without a renderer
+        shell: pwsh
+        run: |
+          $tmp = Join-Path ([System.IO.Path]::GetTempPath()) 'omo-start-local-ci'
+          if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
+          New-Item -ItemType Directory -Force -Path (Join-Path $tmp 'scripts') | Out-Null
+          Copy-Item ./scripts/start-local.ps1 (Join-Path $tmp 'scripts/start-local.ps1')
+          $output = pwsh -NoProfile -File (Join-Path $tmp 'scripts/start-local.ps1') -SkipFrontendBuild 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          if ($code -ne 1) { throw "expected start-local.ps1 to exit 1 without a renderer, got $code`n$output" }
+          if ($output -notmatch 'What to check') { throw "start-local.ps1 printed no guidance block:`n$output" }
+          exit 0
+
+      # T9 发布清单：生成 → 校验通过 → 篡改后必须失败。
+      # 只用桩文件，因此不需要 electron-builder 或 PyInstaller。
+      - name: Release manifest round-trip
+        shell: pwsh
+        run: |
+          $base = Join-Path ([System.IO.Path]::GetTempPath()) 'omo-manifest-ci'
+          if (Test-Path $base) { Remove-Item -Recurse -Force $base }
+          $artifacts = Join-Path $base 'artifacts'
+          $out = Join-Path $base 'out'
+          New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
+          Set-Content -LiteralPath (Join-Path $artifacts 'OMOPredict-lite-0.1.0-win-x64.zip') -Value 'stand-in package' -Encoding ASCII
+          Set-Content -LiteralPath (Join-Path $artifacts 'omopredict-server.exe') -Value 'stand-in backend' -Encoding ASCII
+
+          pwsh -NoProfile -File ./scripts/release-manifest.ps1 -InputDir $artifacts -OutDir $out -Version '0.1.0-ci'
+          if ($LASTEXITCODE -ne 0) { throw "release-manifest.ps1 failed to generate (exit $LASTEXITCODE)" }
+          if (-not (Test-Path (Join-Path $out 'SHA256SUMS.txt'))) { throw 'SHA256SUMS.txt was not written' }
+
+          pwsh -NoProfile -File ./scripts/release-manifest.ps1 -Verify -InputDir $artifacts -Checksums (Join-Path $out 'SHA256SUMS.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'release-manifest.ps1 -Verify rejected a good manifest' }
+
+          # 篡改一个字节后校验必须失败，否则"校验"没有意义
+          Add-Content -LiteralPath (Join-Path $artifacts 'OMOPredict-lite-0.1.0-win-x64.zip') -Value 'tampered'
+          pwsh -NoProfile -File ./scripts/release-manifest.ps1 -Verify -InputDir $artifacts -Checksums (Join-Path $out 'SHA256SUMS.txt')
+          if ($LASTEXITCODE -ne 1) { throw "expected -Verify to fail on a tampered file, got $LASTEXITCODE" }
+          exit 0
+
       # 完整路径：Go 构建 → 暂存 → 体积门禁 → 压缩（退出码 0）
       - name: Build lightweight package
         shell: pwsh
@@ -231,4 +273,104 @@ jobs:
           $output = pwsh -NoProfile -File ./scripts/rpc-cli.ps1 -Exe ./desktop/release/omopredict-server.exe -DataDir ./ci-data -Method no.such.method 2>&1 | Out-String
           if ($output -notmatch '\-32601') { throw "expected error code -32601:`n$output" }
           exit 0
+
+  # 发布 job（T9）：tag 触发，产出轻量包 + SHA256 清单并挂到 Release 上。
+  #
+  # 为什么只有轻量包：完整包要跑 electron-builder（需要 Electron 二进制与 Windows 目标环境），
+  # 在 ubuntu runner 上打不出来。所以完整包按 docs/desktop.md 的约定在本机 Windows 上构建，
+  # 再手工上传到同一个 Release —— 本 job 会在 run summary 里明确写出这一步，避免"忘了传"。
+  release:
+    name: Release (tag)
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 创建 Release 并上传资产
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # 标签版本与包版本必须一致：build-lite.ps1 用 desktop/package.json 的 version 给 zip 命名，
+      # 若两者漂移就会发出"标着 vX 却装着 Y"的包。这里提前拦掉。
+      - name: Tag must match the packaged version
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME -replace '^v', ''
+          $pkg = (Get-Content ./desktop/package.json -Raw -Encoding UTF8 | ConvertFrom-Json).version
+          Write-Host "tag=$tag package=$pkg"
+          if ($tag -ne $pkg) {
+            throw "tag '$env:GITHUB_REF_NAME' implies version '$tag' but desktop/package.json says '$pkg'; bump the version before tagging"
+          }
+          exit 0
+
+      # 用打好的壳目录当桩：真实 Electron 产物在 Windows 上生成，这里只验证"包结构 + 体积门禁 + 压缩"。
+      - name: Stand-in shell tree
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path packaging/release-shell/resources | Out-Null
+          Set-Content -LiteralPath packaging/release-shell/OMOPredict.exe -Value 'stand-in for the electron shell' -Encoding ASCII
+
+      # 渲染产物是真的（前端在本 runner 上构建）；只有壳是桩。
+      - name: Build lightweight package
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File ./scripts/build-lite.ps1 -ShellDir packaging/release-shell -OutDir dist/release
+          if ($LASTEXITCODE -ne 0) { throw "build-lite.ps1 failed with exit code $LASTEXITCODE" }
+          exit 0
+
+      - name: SHA256 manifest
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File ./scripts/release-manifest.ps1 -InputDir dist/release -OutDir dist/release
+          if ($LASTEXITCODE -ne 0) { throw "release-manifest.ps1 failed with exit code $LASTEXITCODE" }
+          exit 0
+
+      # 清单必须能被同一条命令验回去：发布的校验说明也就是这一条。
+      - name: Verify the manifest we are about to publish
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File ./scripts/release-manifest.ps1 -Verify -InputDir dist/release -Checksums dist/release/SHA256SUMS.txt
+          if ($LASTEXITCODE -ne 0) { throw "the published manifest does not verify against its own artifacts" }
+          exit 0
+
+      - name: Note what still has to be built locally
+        run: |
+          {
+            echo '### Release assets'
+            echo ''
+            echo 'Uploaded by this job: the lightweight package zip, `SHA256SUMS.txt` and the JSON manifest.'
+            echo ''
+            echo '**Not** uploaded: the full desktop package. It needs `electron-builder` plus the'
+            echo 'electron-builder Windows target, so it is built locally with'
+            echo '`powershell -File scripts\\build-desktop.ps1` and attached to this same release by hand.'
+            echo 'After attaching it, regenerate the manifest so its hash is covered:'
+            echo ''
+            echo '```'
+            echo 'powershell -File scripts\\release-manifest.ps1 -InputDir desktop\\release -OutDir dist\\release'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "OMOPredict ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            dist/release/SHA256SUMS.txt \
+            dist/release/omopredict-*.json \
+            dist/release/OMOPredict-lite-*.zip
 

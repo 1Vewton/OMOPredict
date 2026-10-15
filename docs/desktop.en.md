@@ -282,8 +282,19 @@ OMOPredict/
     ├── build-desktop.ps1        # pnpm build → go build → pyinstaller → electron-builder
     ├── build-lite.ps1           # pnpm build → go build → assemble the lightweight package
     ├── rpc-cli.ps1              # Manual debugging: send one line of JSON to stdio and read the response
-    └── start-local.ps1          # Shell-less debugging: spawn Go(--stdio)+engine + open a browser (http mode)
+    ├── start-local.ps1          # Shell-less debugging: start the local debug bridge + serve the renderer + print/open the browser URL
+    ├── local-bridge.mjs         # Bridge CLI: HTTP ↔ Go(stdin/stdout) ↔ engine (the only listening port, loopback only)
+    ├── local-bridge-lib.mjs     # The bridge's unit-testable core (route mapping / JSON-Lines / static serving + traversal protection)
+    ├── local-bridge-lib.d.mts   # Type declarations for that .mjs (so the desktop unit tests type-check)
+    └── release-manifest.ps1     # Release manifest: SHA256SUMS.txt + JSON, re-checkable with -Verify
 ```
+
+> **What the shell-less debug bridge is for** (the T9 tail item): the desktop form listens on no port at
+> runtime, so a browser has nothing to connect to. `local-bridge.mjs` is the adapter that closes that gap —
+> it is the **only** process in the tree that listens on a port (default `127.0.0.1`), translating HTTP
+> requests into `internal/rpc` method calls and serving `frontend/dist` on the side. It is a **debug tool**
+> rather than a product form: it only talks to the child it spawned itself, its route table is a closed
+> allowlist, and it has no generic forwarding capability.
 
 ---
 
@@ -297,6 +308,18 @@ OMOPredict/
 [5] lite     : dist + [2] + engine source + setup script → zip                          → lightweight package
 [6] release  : triggered by tag; upload artefacts + SHA256 manifest
 ```
+
+- ✅ **`[6] release` has landed (T9)**: the CI `release` job (`if: startsWith(github.ref, 'refs/tags/v')`)
+  first checks that the **tag (minus the leading `v`) matches `desktop/package.json`'s version** (otherwise a
+  package labelled vX would ship containing Y), then genuinely builds the lightweight package →
+  `release-manifest.ps1` writes `SHA256SUMS.txt` + a JSON manifest → **verifies the manifest against its own
+  artefacts before publishing** → `gh release create` uploads them. The manifest format is compatible with
+  `sha256sum -c` (UTF-8 without BOM, LF only).
+  - ⚠️ **The full package is not built in CI**: electron-builder needs the Windows target and the Electron
+    binary, which an ubuntu runner cannot provide. The full package is therefore built on a **local Windows
+    machine** with `scripts\build-desktop.ps1` and attached to the same release by hand, after which the
+    manifest must be **regenerated** so its hash is covered; the release job writes this into the run summary
+    so it cannot be forgotten.
 
 - Caches: pnpm store, Go build cache, uv cache, Electron binaries (`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`).
 - **Size gates**: full package ≤300MB, **engine directory ≤250MB** (was 90MB, relaxed in 2026-09 according to measurements), **lightweight package ≤150MB**
@@ -323,7 +346,7 @@ OMOPredict/
 |---|---|
 | Frontend only (web) | `pnpm dev` (Vite proxy → Go :8080, jwt mode); the frontend automatically uses the http transport |
 | Shell development | Go/engine started the usual way; shell dev mode loads `http://localhost:5173`, and the Host skips spawning child processes (`OMO_DESKTOP_DEV=1`) |
-| Shell-less local debugging | `scripts/start-local.ps1` (Go `--stdio` + engine `omo.rpc` + manual joint debugging with `rpc-cli.ps1`) |
+| Shell-less local debugging | `scripts/start-local.ps1`: starts the debug bridge (the only listening port, loopback only) + serves `frontend/dist`, so the whole no-port chain runs in a browser; `rpc-cli.ps1` is still there for manual protocol work |
 | Full/lightweight package | `build-desktop.ps1` / `build-lite.ps1` (T8/T9); artefacts are in `desktop/release/` |
 | Manual RPC verification | `rpc-cli.ps1 '{"jsonrpc":"2.0","id":1,"method":"tasks.list","params":{}}'` |
 
@@ -414,11 +437,11 @@ OMOPredict/
 | T4.5 Go stdio engine transport | ✅ Done | `internal/task/engine_stdio.go`: `StdioEngine` (lazily spawns the engine child process, JSON-Lines send/receive, correlating out-of-order responses by id, per-call timeout, in-flight requests fail immediately when the engine exits, Close finishes gracefully with a 3s force-kill timeout; stdout carries the protocol only, the engine's stderr is merged into this process) + `engine_resolve.go`: `ResolveEngineCommand` (D9 levels 1–4, including quoted-path splitting) + the `Engine` interface makes HTTP/stdio **share the same payload construction** (`simulateParams`); `main.go` selects the transport by `OMO_ENGINE_TRANSPORT` and **exits at startup** when stdio resolution fails (no silent fallback to HTTP) |
 | T5 Frontend transport abstraction + gates | ✅ Done | `api/transport.ts` (the `Transport` interface + method→endpoint mapping + `ipcTransport`/`httpTransport` + `activeTransport()`: detects `window.omo` and picks IPC, otherwise HTTP, overridable with `setTransport()`) + `api/client.ts` (unified entry, 401 → clear credentials + broadcast `omo:unauthorized`) + `api/token.ts` (credentials, not involved in single-user mode) + `api/meta.ts`; **capability gates**: `main.ts` calls `bootstrap()` before mounting to fetch `meta`, the auth store gains `authRequired`/`isLocalMode`/`isAuthenticated`, the route guard lets all pages through in unauthenticated mode and redirects `/login` to `/design`, the top bar shows a "local mode" marker and hides the username/logout, and a failing `meta` falls back to "authentication required"; the history page gains delete (two-step inline confirmation) |
 | T6 Host layer | ✅ Done | `desktop/src/host/` (**pure Node modules, Electron-independent**): `paths` (D6 data/log directories, picking path semantics by target platform) + `logger` (D7 daily logs, kept 7 days, degrading to echo-only when the directory is unusable) + `lines` (JSON-Lines framing: half-lines spanning chunks, over-long lines discarded) + `rpc` (id↔Promise, per-call timeout, error codes = HTTP semantics, illegal lines/unknown ids only report protocol errors) + `backend` (spawn, ping health check, stderr to disk, **in-flight requests invalidated immediately on exit**, rate-limited restart, graceful shutdown + force-killing the process tree on timeout, tolerance of stdout pollution) + `engine` (only the engine-source probing that Go cannot see + the D9 level 5 guidance) + `singleton` (file lock) + `host` (assembles and injects the D6 environment variables, defaulting to `OMO_ENGINE_TRANSPORT=stdio`) |
-| T7 Electron shell | ✅ Done (**no runtime startup verification done**, see below) | `src/main.ts` (main-process wiring: single-instance lock + focusing the existing window, the `app://` protocol, menu, IPC, graceful exit reclaiming the backend), `src/preload.ts` (a contextBridge whitelist exposing only `rpc`/`openLogDir`/`openDataDir`), `src/shell/` (shell logic decoupled from Electron: `appProtocol` app:// resolution + directory-traversal protection + CSP/security headers, `channels` IPC channels and the **result envelope** (so Electron does not squash the Error's `code`), `preloadBridge`, `menu`, `windowOptions` security baseline, `backendCommand` packaging/development-time location, `diagnostics` redacted diagnostics), the electron-builder configuration in `package.json` (nsis + zip, extraResources: `dist/` + `omopredict-server.exe`) | `tsc --noEmit` is clean **against the real Electron types** (validating every use of app/BrowserWindow/protocol/Menu/ipcMain); **150 unit tests** (12 files; including 5 encoding variants of app:// directory traversal, CSP with no network, IPC envelopes across the process boundary, menu/window security baseline, diagnostic redaction); the integration tests add the **renderer-process-visible link** (`window.omo.rpc` → IPC envelope → real Go → real engine, including a cross-boundary 404) |
+| T7 Electron shell | ✅ Done (**has been launched**, see below) | `src/main.ts` (main-process wiring: single-instance lock + focusing the existing window, the `app://` protocol, menu, IPC, graceful exit reclaiming the backend), `src/preload.ts` (a contextBridge whitelist exposing only `rpc`/`openLogDir`/`openDataDir`), `src/shell/` (shell logic decoupled from Electron: `appProtocol` app:// resolution + directory-traversal protection + CSP/security headers, `channels` IPC channels and the **result envelope** (so Electron does not squash the Error's `code`), `preloadBridge`, `menu`, `windowOptions` security baseline, `backendCommand` packaging/development-time location, `diagnostics` redacted diagnostics), the electron-builder configuration in `package.json` (nsis + zip, extraResources: `dist/` + `omopredict-server.exe`) | `tsc --noEmit` is clean **against the real Electron types** (validating every use of app/BrowserWindow/protocol/Menu/ipcMain); **184 unit tests** (13 files; including 5 encoding variants of app:// directory traversal, CSP with no network, IPC envelopes across the process boundary, menu/window security baseline, diagnostic redaction, and the local debug bridge's routing/static serving); the integration tests add the **renderer-process-visible link** (`window.omo.rpc` → IPC envelope → real Go → real engine, including a cross-boundary 404) |
 | T8 Lightweight package | ✅ Done | `scripts/setup-engine.ps1` (two installation paths, uv → pip, + a ping verification; failures always give actionable guidance), `scripts/build-lite.ps1` (render output + Go backend + **engine source** + setup script + README → **three size gates** → zip; `-AllowMissingShell` supports staging only when there is no shell), the `desktop/lite/README.txt` template, `scripts/README.md` | Both scripts **have actually been run**: setup-engine's four paths — success/failure/auto-discovery/uv; build-lite's staging (exit 2)/full packaging (exit 0)/each of the two gates blocking (exit 1); the `desktop/` integration tests add an **engine unavailable** case (a real Go backend + a nonexistent interpreter → the task lands in `failed` with the error `engine: 启动 [...]: fork/exec ... cannot find the path specified`); CI gains a `packaging` job. The size gates were relaxed by the 2026-09 decision to payload 50MB + whole package 150MB (see §7) |
-| T9 Contract consistency + scripts + CI | 🔶 Partly done | ✅ Landed: backend `internal/rpc/contract_test.go` (field-for-field HTTP↔RPC), frontend vitest (5 files, 60 cases, including **two-transport payload consistency**), desktop vitest (150 cases + 3 gated integration cases), **`rpc-cli.ps1`** (a stdio debugging client, actually run for ping/`tasks.list`/unknown method `-32601`/direct engine connection/bad JSON caught by local validation), **`build-desktop.ps1`** (full package: render + Go + **PyInstaller sidecar** + shell TS (main ESM / preload CJS) → electron-builder → three gates; actually run up to `-SkipPackaging`, and the produced sidecar was used to pass numerical consistency), **size gates** (both scripts + CI reverse-verifying that "the gate really does block"); ⏳ still to do: `start-local.ps1`, Release upload and the SHA256 manifest, completing the six CI jobs |
+| T9 Contract consistency + scripts + CI + release | ✅ Done | ✅ Landed: backend `internal/rpc/contract_test.go` (field-for-field HTTP↔RPC), frontend vitest (5 files, 60 cases, including **two-transport payload consistency**), desktop vitest (184 cases + 3 gated integration cases), **`rpc-cli.ps1`** (a stdio debugging client, actually run for ping/`tasks.list`/unknown method `-32601`/direct engine connection/bad JSON caught by local validation), **`build-desktop.ps1`** (full package: render + Go + **PyInstaller sidecar** + shell TS (main ESM / preload CJS) → electron-builder → three gates; actually run up to `-SkipPackaging`, and the produced sidecar was used to pass numerical consistency), **size gates** (both scripts + CI reverse-verifying that "the gate really does block"), **`start-local.ps1` + `local-bridge.mjs`** (an HTTP↔stdio debug bridge: the no-port chain drivable from a browser; 33 unit tests on the bridge core), **`release-manifest.ps1`** (SHA256SUMS.txt + a JSON manifest, re-checkable with `-Verify`; tampering always fails), **a CI `release` job** (triggered by `v*` tags: version-consistency guard → real lightweight package → manifest → self-verification → `gh release create`). ⏳ The only part not done is **shipping the full package through the release** (it needs electron-builder's Windows target, so it goes back to the local machine — see the release-job note in §7) |
 | T10 Documentation | ⏳ | To do (the T1/T3 contracts have already been written ahead into `docs/api/rest.md` and `docs/api/rpc.md`; the T4.5 stdio variant is in `docs/api/engine.md`) |
-| T11 Clean-machine acceptance | ⏳ | To do |
+| T11 Clean-machine acceptance | ⏳ | To do (**the shell's runtime startup/rendering passed for real in 2026-10, see HANDOVER §6.35**; what remains is a real electron-builder run and a second, clean machine) |
 
 > ✅ **T4.5 verification (2026-09, measured)**: 12 new Go tests (a fake engine child process over real pipes: simulation/inverse-design round trips, `code=422` pass-through,
 > timeout, mid-flight process exit, idempotent Close, startup failure, D9 four-level resolution, command-line quote splitting, out-of-order responses correlated by id,
@@ -498,8 +521,14 @@ OMOPredict/
 >   It was also confirmed that the artefact has **0 entries** for `torch`/`fastapi`/`uvicorn`/`matplotlib`.
 > - **Layout alignment**: PyInstaller `--distpath release-bin` produces `release-bin/omo-rpc/`, which electron-builder maps to
 >   `resources/engine`, so the exe lands at `resources/engine/omo-rpc.exe` — exactly where Go's `findSidecar` expects it.
-> - ⚠️ **Still not done**: electron-builder itself (needs the Electron binaries), `start-local.ps1`, and the Release upload with the SHA256 manifest.
+> - ✅ **The T9 tail items also landed (2026-10)**: `start-local.ps1` + `local-bridge.mjs` (HTTP↔stdio debug
+>   bridge; measured end to end — `Rs=3.970819`, `T@550nm=0.974497`, `SE@10GHz=33.7036`, SPA fallback, task
+>   deletion, no leftover processes after Ctrl+C; 33 unit tests on the bridge core) and `release-manifest.ps1`
+>   (generate → verify passes → tampering with one byte fails → empty/missing directory exits 1), plus the CI
+>   `release` job described in §7.
+> - ⚠️ **Still not done**: electron-builder itself (needs the Electron binaries) and therefore shipping the
+>   full package through the release; clean-machine acceptance (T11).
 
 ---
 
-*This design is the 3rd draft review copy; it has been implemented according to the §11 breakdown (T1–T8 ✅, T9 partly, progress in §13), with AGENTS.md milestones and HANDOVER to be updated in step.*
+*This design is the 3rd draft review copy; it has been implemented according to the §11 breakdown (T1–T9 ✅, progress in §13), with AGENTS.md milestones and HANDOVER to be updated in step.*

@@ -3,7 +3,7 @@
 > **中文** · [English version](README.en.md)
 
 > 设计见 [`docs/desktop.md`](../docs/desktop.md) §6/§7；T8 交付 `setup-engine.ps1` 与 `build-lite.ps1`，
-> T9 交付 `build-desktop.ps1` 与 `rpc-cli.ps1`，T11 交付 `smoke-desktop.ps1`。
+> T9 交付 `build-desktop.ps1`、`rpc-cli.ps1`、`start-local.ps1` 与 `release-manifest.ps1`，T11 交付 `smoke-desktop.ps1`。
 
 | 脚本 | 任务 | 作用 |
 |---|---|---|
@@ -11,9 +11,21 @@
 | `build-lite.ps1` | T8 | 组装轻量包：渲染产物 + Go 后端 + **引擎源码** + setup 脚本 + README → 体积门禁 → zip |
 | `build-desktop.ps1` | T9 | 完整包：渲染产物 + Go 后端 + **PyInstaller 引擎 sidecar** + 壳 TS（main ESM / preload CJS）→ electron-builder → 体积门禁 |
 | `rpc-cli.ps1` | T9 | 手工调试：向 stdio 端点发一行/多行 JSON-RPC，把 stderr 日志与响应分开打印 |
+| `start-local.ps1` | T9 | **无壳本地调试**：拉起 `local-bridge.mjs`（HTTP ↔ Go `--stdio` ↔ 引擎），托管渲染产物并打印/打开浏览器地址 |
+| `release-manifest.ps1` | T9 | 发布清单：给产物生成 `SHA256SUMS.txt` + JSON 清单；`-Verify` 反查校验（篡改必失败） |
 | `smoke-desktop.ps1` | T11 | **一键判定壳能不能跑**：构建齐（渲染/后端/壳 TS）→ 启动 Electron → 渲染成功退出 **0**、失败退出 **1** 并打印原因；开头会自检是不是跑在 harness 里 |
 | `diagnose-electron.ps1` | T11 | Electron 启动诊断：打印"我在哪跑"（`ELECTRON_RUN_AS_NODE`/DSH 变量/父进程）+ 最小 Electron 程序的启动矩阵，用来区分"在沙箱内"与"机器本身起不来" |
-| `start-local.ps1` | T9 | 无壳调试（HTTP 模式 + 打开浏览器）—— **待做** |
+
+`scripts/` 根目录下还有脚本用到的 Node 模块（目前只有本地调试桥）：
+
+| 文件 | 作用 |
+|---|---|
+| `local-bridge-lib.mjs` | 桥的**可单测核心**：REST↔RPC 路由映射、JSON-Lines 客户端、静态托管与目录穿越防护（零依赖） |
+| `local-bridge-lib.d.mts` | 上面那个 `.mjs` 的类型声明（`desktop/src/shell/localBridge.test.ts` 会 import 它） |
+| `local-bridge.mjs` | 桥的 CLI 入口：拉起 Go `--stdio`、监听唯一端口、把渲染产物托管出去 |
+
+> 为什么这两个 `.mjs` 不放在 `lib/` 子目录：仓库根 `.gitignore` 第 17 行有一条**通配的 `lib/`**
+> （Python 模板继承来的），放进去会**被静默忽略**——文件在本地存在、`git status` 里却看不见。
 
 ## 用法
 
@@ -36,13 +48,62 @@ powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method tasks.list
 powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Target engine -Method ping
 powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method no.such.method  # 看 -32601
 
+# 无壳本地调试：在浏览器里用完整无端口链路（Ctrl+C 退出即全部回收）
+powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1
+powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -Port 9000 -Open
+powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -SkipFrontendBuild -SkipGoBuild
+powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -EngineCmd '"C:\Python312\python.exe" -m omo.rpc'
+
+# 发布清单（tag 发的版本；也可本地手工给完整包补清单）
+powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1
+powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1 -InputDir desktop\release -OutDir dist\release
+powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1 -Verify    # 校验已发布的清单
+
 # 壳冒烟自检（必须在 DSH 沙箱**外**的普通终端里跑，见下）
 powershell -ExecutionPolicy Bypass -File scripts\smoke-desktop.ps1
 powershell -ExecutionPolicy Bypass -File scripts\smoke-desktop.ps1 -SkipBuild   # 用已有产物，快
 ```
 
-退出码：`setup-engine` / `rpc-cli` / `smoke-desktop` = 0 成功 / 1 失败；
+退出码：`setup-engine` / `rpc-cli` / `smoke-desktop` / `start-local` / `release-manifest` = 0 成功 / 1 失败；
 `build-lite` / `build-desktop` = 0 出包 / 1 构建或门禁失败 / **2 仅暂存**（没做最后的打包步骤，不假装成功）。
+
+## `start-local.ps1` 与 `local-bridge.mjs`（无壳调试）
+
+桌面形态**运行期不监听任何端口**（`docs/desktop.md` D11）：Go 以 `--stdio` 跑，引擎又是 Go 的
+stdio 子进程。安全，但浏览器也就无从连起。`local-bridge.mjs` 就是补上这一环的适配器：
+
+```
+浏览器 --HTTP--> local-bridge.mjs --stdio JSON-RPC--> Go --stdio JSON-RPC--> Python 引擎
+```
+
+整棵进程树里**只有桥监听一个回环端口**，所以这条路径同时验证了"无端口链路"与"UI 能不能用"，
+不需要构建或启动 Electron。桥的定位是**调试工具**：只跟自己拉起的子进程说话、默认绑 `127.0.0.1`，
+路由表是**封闭白名单**（没有任何通用转发/代理功能）。
+
+实测（本机）：`/health`、`/api/meta`（`auth_mode: none`）、建 `simulate` 任务 → `Rs = 3.970819 Ω/sq`、
+`T@550nm = 0.974497`、`SE@10GHz = 33.7036`（与 REST/引擎契约一致）、SPA 深链回退、删除任务均正常；
+Ctrl+C 后端口释放、无残留子进程。
+
+> ⚠️ 桥会在**自己的环境里**设 `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` 再拉起 Go：引擎是孙进程，
+> 只能从这里把编码传下去。否则 Windows 上 Python 按 ANSI 代码页写 stderr，引擎的 UTF-8 日志落进
+> 日志文件就是乱码，而紧挨着的 Go 日志却正常（HANDOVER §6.36）。
+
+## `release-manifest.ps1`（发布清单）
+
+产出两份东西（`-OutDir`，默认 `dist/release/`）：
+
+| 文件 | 内容 |
+|---|---|
+| `SHA256SUMS.txt` | `sha256sum` 兼容格式 `<64 hex>  <文件名>`（两个空格分隔）；**UTF-8 无 BOM + 仅 LF**，可在 Linux/macOS 上直接 `sha256sum -c` |
+| `omopredict-<version>.json` | 机器可读清单：`product` / `version` / `commit` / `generated` / 每个产物的 `sha256`、`size` |
+
+- 只收 `-InputDir` 的**直接子文件**（排除 `*.json` 与 `SHA256SUMS.txt`）：`release/` 里通常还有
+  `win-unpacked/` 这类解包目录，绝不能进清单。确有清单外文件用 `-Include <路径>` 显式加。
+- 版本取 `desktop/package.json`（拿不到再退到 `engine/pyproject.toml`），也可 `-Version` 覆盖。
+- `-Verify` 逐条比对：缺文件或哈希不符都算失败（退出 1），**篡改必然被发现**（已实测）。
+- 发布 job 在打清单前会先校验 `tag`（去掉 `v`）与 `desktop/package.json` 的 `version` 一致，
+  避免发出"标着 vX 却装着 Y"的包。
+
 
 > `smoke-desktop.ps1` 是 T11 的判定工具：渲染成功打印 `[smoke] OK` 并退出 0，否则打印原因退出 1
 > （会识别原生崩溃码并提示是不是跑在沙箱里）。它做的正是 docs/desktop.md §10 里那几件"必须真的启动一次"的事。
@@ -100,11 +161,24 @@ powershell -ExecutionPolicy Bypass -File scripts\smoke-desktop.ps1 -SkipBuild   
 
 `.github/workflows/ci.yml` 里：
 
-- `desktop` job 跑 `pnpm build`（验证 main=ESM / preload=CJS 真的能产出）+ type-check + vitest；
+- `desktop` job 跑 `pnpm build`（验证 main=ESM / preload=CJS 真的能产出）+ type-check + vitest
+  （含 `desktop/src/shell/localBridge.test.ts`：覆盖调试桥的路由映射、JSON-Lines 客户端与穿越防护）；
 - `packaging` job（ubuntu + `pwsh`）跑：
   1. 用**桩壳目录**跑通 `build-lite.ps1` 全路径（暂存 → 门禁 → 压缩），退出码必须为 0；
   2. 把门禁上限压到 1MB，验证它**真的会拦**（退出码 1）；
   3. 在没装引擎的环境跑 `setup-engine.ps1 -SkipInstall`，验证它退出 1 且打印"What to check"指引
      —— 即 T8 验收项"无 Python 错误路径"；
   4. 用刚构建出的后端跑 `rpc-cli.ps1` 的 `ping`（必须拿到 `"status":"ok"`）与未知方法
-     （必须回 `-32601`）—— 调试工具也要有人验。
+     （必须回 `-32601`）—— 调试工具也要有人验；
+  5. 把 `start-local.ps1` 复制进一个空目录，证明它的失败路径是可操作的（退出 1 + "What to check"），
+     且不需要 pnpm / Go / Electron；
+  6. 往返验证 `release-manifest.ps1`：生成 → `-Verify` 必须通过 → 篡改一个字节 → `-Verify` 必须失败。
+     没人跑过的门禁等于没有门禁。
+- `release` job **只由 `v*` tag 触发**（`if: startsWith(github.ref, 'refs/tags/v')`）：
+  1. tag 与 `desktop/package.json` 的 `version` 不一致就直接失败；
+  2. 真打轻量包（渲染产物是真的在本 runner 上构建的；只有 Electron 壳目录是桩，因为 electron-builder 需要 Windows 目标）；
+  3. 生成 SHA256 清单，**并在发布前用清单校验自己刚产出的产物**；
+  4. 用 `gh release create` 建 Release，附上 zip、`SHA256SUMS.txt` 与 JSON 清单；
+  5. 在 run summary 里写明：**完整包**（`build-desktop.ps1`，依赖 electron-builder）仍需在本地 Windows 上
+     构建并手工附到同一个 Release，附完要重新生成清单以覆盖它的哈希。
+

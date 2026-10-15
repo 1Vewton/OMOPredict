@@ -8,6 +8,9 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   test: {
     environment: 'node',
+    // src/shell/localBridge.test.ts 覆盖 scripts/lib/local-bridge.mjs（T9 的本地调试桥）：
+    // 那个 .mjs 是零依赖的纯 Node 模块，挂在桌面工程下测可以复用这里"会真起子进程/真监听"
+    // 的 node 环境，而不必给 scripts/ 单独建一套 JS 工具链。
     include: ['src/**/*.test.ts'],
     restoreMocks: true,
     testTimeout: 20000,

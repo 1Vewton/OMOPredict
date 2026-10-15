@@ -3,7 +3,8 @@
 > **English** · [中文版](README.md)
 
 > Design in [`docs/desktop.md`](../docs/desktop.md) §6/§7; T8 delivers `setup-engine.ps1` and `build-lite.ps1`,
-> T9 delivers `build-desktop.ps1` and `rpc-cli.ps1`, and T11 delivers `smoke-desktop.ps1`.
+> T9 delivers `build-desktop.ps1`, `rpc-cli.ps1`, `start-local.ps1` and `release-manifest.ps1`,
+> and T11 delivers `smoke-desktop.ps1`.
 
 | Script | Task | Purpose |
 |---|---|---|
@@ -11,9 +12,22 @@
 | `build-lite.ps1` | T8 | Assemble the lightweight package: rendered artefacts + Go backend + **engine source** + setup script + README → size gate → zip |
 | `build-desktop.ps1` | T9 | Full package: rendered artefacts + Go backend + **PyInstaller engine sidecar** + shell TS (main ESM / preload CJS) → electron-builder → size gate |
 | `rpc-cli.ps1` | T9 | Manual debugging: send one or more lines of JSON-RPC to the stdio endpoint, printing stderr logs and responses separately |
+| `start-local.ps1` | T9 | **Shell-less local debugging**: brings up `local-bridge.mjs` (HTTP ↔ Go `--stdio` ↔ engine), serves the renderer and prints/opens the browser URL |
+| `release-manifest.ps1` | T9 | Release manifest: writes `SHA256SUMS.txt` + a JSON manifest for the artefacts; `-Verify` re-checks them (tampering always fails) |
 | `smoke-desktop.ps1` | T11 | **One command to decide whether the shell runs**: build everything (renderer/backend/shell TS) → start Electron → exit **0** on a successful render, **1** on failure with the reason printed; it self-checks at the start whether it is running inside the harness |
 | `diagnose-electron.ps1` | T11 | Electron launch diagnostics: prints "where am I running" (`ELECTRON_RUN_AS_NODE` / DSH variables / parent process) plus a launch matrix for a minimal Electron app, to tell "inside the sandbox" apart from "cannot start on this machine" |
-| `start-local.ps1` | T9 | Shell-less debugging (HTTP mode + open a browser) — **to do** |
+
+`scripts/` also holds the Node modules the scripts use (currently only the local debug bridge):
+
+| File | Purpose |
+|---|---|
+| `local-bridge-lib.mjs` | The bridge's **unit-testable core**: REST↔RPC route mapping, JSON-Lines client, static serving and traversal protection (zero dependencies) |
+| `local-bridge-lib.d.mts` | Type declarations for that `.mjs` (imported by `desktop/src/shell/localBridge.test.ts`) |
+| `local-bridge.mjs` | The bridge's CLI entry point: spawns Go `--stdio`, listens on the one port, serves the renderer |
+
+> Why those `.mjs` files are not in a `lib/` sub-directory: the repository's root `.gitignore` has a
+> blanket **`lib/`** rule (line 17, inherited from the Python template), so putting them there would get
+> them **silently ignored** — present on disk, invisible to `git status`.
 
 ## Usage
 
@@ -36,14 +50,68 @@ powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method tasks.list
 powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Target engine -Method ping
 powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method no.such.method  # see -32601
 
+# Shell-less local run: drive the whole no-port chain from a browser (Ctrl+C reclaims everything)
+powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1
+powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -Port 9000 -Open
+powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -SkipFrontendBuild -SkipGoBuild
+powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -EngineCmd '"C:\Python312\python.exe" -m omo.rpc'
+
+# Release manifest (for a tagged version; also used to add the full package locally)
+powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1
+powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1 -InputDir desktop\release -OutDir dist\release
+powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1 -Verify    # check a published manifest
+
 # Shell smoke check (must be run in a normal terminal OUTSIDE the DSH sandbox - see below)
 powershell -ExecutionPolicy Bypass -File scripts\smoke-desktop.ps1
 powershell -ExecutionPolicy Bypass -File scripts\smoke-desktop.ps1 -SkipBuild   # reuse existing artefacts, faster
 ```
 
-Exit codes: `setup-engine` / `rpc-cli` / `smoke-desktop` = 0 success / 1 failure;
+Exit codes: `setup-engine` / `rpc-cli` / `smoke-desktop` / `start-local` / `release-manifest` = 0 success / 1 failure;
 `build-lite` / `build-desktop` = 0 package produced / 1 build or size-gate failure / **2 staged only**
 (the final packaging step was not performed, and success is not faked).
+
+## `start-local.ps1` and `local-bridge.mjs` (shell-less debugging)
+
+The desktop shape **listens on no port at runtime** (`docs/desktop.md` D11): Go runs `--stdio` and the
+engine is a stdio child of Go. Safe, but a browser has nothing to connect to. `local-bridge.mjs` is the
+adapter that closes that gap:
+
+```
+browser --HTTP--> local-bridge.mjs --stdio JSON-RPC--> Go --stdio JSON-RPC--> Python engine
+```
+
+The bridge owns the **only** listening port in the whole process tree (loopback), so this single path
+verifies both "the no-port chain works" and "the UI actually runs", without building or launching
+Electron. The bridge is a **debug tool**: it only talks to the child it spawned itself, binds `127.0.0.1`
+by default, and its route table is a **closed whitelist** (there is no generic proxy/forward feature).
+
+Measured locally: `/health`, `/api/meta` (`auth_mode: none`), creating a `simulate` task →
+`Rs = 3.970819 Ω/sq`, `T@550nm = 0.974497`, `SE@10GHz = 33.7036` (matching the REST/engine contract),
+SPA deep links and task deletion all behave; after Ctrl+C the port is free and no child process is left.
+
+> ⚠️ The bridge sets `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` in **its own** environment before
+> spawning Go: the engine is a grandchild, so this is the only place the encoding can be set. Without it
+> Python on Windows writes stderr using the ANSI code page, so the engine's UTF-8 log lines land in the
+> log file as mojibake while the Go lines right next to them look fine (HANDOVER §6.36).
+
+## `release-manifest.ps1` (release manifest)
+
+It writes two things (to `-OutDir`, default `dist/release/`):
+
+| File | Contents |
+|---|---|
+| `SHA256SUMS.txt` | `sha256sum`-compatible `<64 hex>  <file name>` (two spaces); **UTF-8 without BOM, LF only**, so Linux/macOS can run `sha256sum -c` directly |
+| `omopredict-<version>.json` | Machine-readable manifest: `product` / `version` / `commit` / `generated` / per-artefact `sha256`, `size` |
+
+- Only **direct child files** of `-InputDir` are collected (`*.json` and `SHA256SUMS.txt` excluded): a
+  `release/` directory usually also holds unpacked trees such as `win-unpacked/`, which must never be
+  hashed. Anything outside it needs an explicit `-Include <path>`.
+- The version comes from `desktop/package.json` (falling back to `engine/pyproject.toml`), and `-Version` overrides it.
+- `-Verify` compares entry by entry: a missing file or a hash mismatch fails (exit 1), so **tampering is
+  always detected** (measured).
+- Before writing the manifest the release job checks that the `tag` (minus the leading `v`) matches
+  `desktop/package.json`'s `version`, so a package labelled vX but containing Y cannot ship.
+
 
 > `smoke-desktop.ps1` is the T11 decider: on a successful render it prints `[smoke] OK` and exits 0,
 > otherwise it prints the reason and exits 1 (it recognises native crash codes and hints whether you are
@@ -103,11 +171,28 @@ Both packaging scripts follow the same idea: **manage "large constants we cannot
 
 In `.github/workflows/ci.yml`:
 
-- the `desktop` job runs `pnpm build` (verifying that main=ESM / preload=CJS really are produced) + type-check + vitest;
+- the `desktop` job runs `pnpm build` (verifying that main=ESM / preload=CJS really are produced) + type-check + vitest
+  (including `desktop/src/shell/localBridge.test.ts`, which covers the debug bridge's route mapping,
+  JSON-Lines client and traversal protection);
 - the `packaging` job (ubuntu + `pwsh`) runs:
   1. the full `build-lite.ps1` path with a **stub shell directory** (stage → size gate → compress), whose exit code must be 0;
   2. squeezes the gate limits down to 1MB to verify that it **really does block** (exit code 1);
   3. runs `setup-engine.ps1 -SkipInstall` in an environment with no engine installed, verifying that it exits 1 and prints the "What to check" guidance
      — that is, the T8 acceptance item "no-Python error path";
   4. uses the just-built backend to run `rpc-cli.ps1`'s `ping` (must get `"status":"ok"`) and an unknown method
-     (must return `-32601`) — the debugging tool also needs someone to verify it.
+     (must return `-32601`) — the debugging tool also needs someone to verify it;
+  5. copies `start-local.ps1` into an empty directory to prove its failure path is actionable (exit 1 plus a
+     "What to check" block) without needing pnpm, Go or Electron;
+  6. round-trips `release-manifest.ps1`: generate → `-Verify` must pass → tamper with one byte → `-Verify`
+     must fail. A gate nobody exercises is not a gate.
+- the `release` job runs **on `v*` tags only** (`if: startsWith(github.ref, 'refs/tags/v')`) and:
+  1. refuses to continue if the tag does not match `desktop/package.json`'s `version`;
+  2. builds the lightweight package for real (the renderer is genuinely built; only the Electron shell
+     directory is a stand-in, because electron-builder needs the Windows target);
+  3. generates the SHA256 manifest and verifies it against its own artefacts before publishing;
+  4. creates the GitHub Release via `gh release create`, attaching the zip, `SHA256SUMS.txt` and the JSON
+     manifest;
+  5. writes a run summary stating that the **full** desktop package (`build-desktop.ps1`, which needs
+     electron-builder) still has to be built on a local Windows machine and attached by hand, and that the
+     manifest should be regenerated afterwards so its hash is covered.
+

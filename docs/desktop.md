@@ -282,8 +282,17 @@ OMOPredict/
     ├── build-desktop.ps1        # pnpm build → go build → pyinstaller → electron-builder
     ├── build-lite.ps1           # pnpm build → go build → 组装轻量包
     ├── rpc-cli.ps1              # 手工调试：向 stdio 发一行 JSON 看响应
-    └── start-local.ps1          # 无壳调试：拉起 Go(--stdio)+引擎 + 打开浏览器（http 模式）
+    ├── start-local.ps1          # 无壳调试：起本地调试桥 + 托管渲染产物 + 打印/打开浏览器地址
+    ├── local-bridge.mjs         # 调试桥 CLI：HTTP ↔ Go(stdin/stdout) ↔ 引擎（唯一监听端口，仅回环）
+    ├── local-bridge-lib.mjs     # 桥的可单测核心（路由映射 / JSON-Lines / 静态托管 + 穿越防护）
+    ├── local-bridge-lib.d.mts   # 上面那个 .mjs 的类型声明（供 desktop 单测 type-check）
+    └── release-manifest.ps1     # 发布清单：SHA256SUMS.txt + JSON，支持 -Verify 反查
 ```
+
+> **无壳调试桥的定位**（T9 尾项）：桌面形态运行期不监听端口，浏览器因此无从连起；
+> `local-bridge.mjs` 是补上这一环的适配器——它是整棵树里**唯一**监听端口的进程（默认 `127.0.0.1`），
+> 把 HTTP 请求翻成 `internal/rpc` 的方法调用，并顺带托管 `frontend/dist`。它是**调试工具**而非产品形态：
+> 只跟自己拉起的子进程说话，路由表是封闭白名单，没有任何通用转发能力。
 
 ---
 
@@ -297,6 +306,14 @@ OMOPredict/
 [5] lite     : dist + [2] + engine 源码 + setup 脚本 → zip                    → 轻量包
 [6] release  : tag 触发；上传产物 + SHA256 清单
 ```
+
+- ✅ **`[6] release` 已落地（T9）**：CI 的 `release` job（`if: startsWith(github.ref, 'refs/tags/v')`）先校验
+  **tag（去掉 `v`）与 `desktop/package.json` 的 version 一致**（否则发出去的包会"标着 vX 装着 Y"），
+  再真打轻量包 → `release-manifest.ps1` 生成 `SHA256SUMS.txt` + JSON 清单 → **发布前用清单校验自己** →
+  `gh release create` 上传。清单格式与 `sha256sum -c` 兼容（UTF-8 无 BOM、仅 LF）。
+  - ⚠️ **完整包不在 CI 里打**：electron-builder 需要 Windows 目标与 Electron 二进制，ubuntu runner 上做不到。
+    因此完整包由**本机 Windows** 用 `scripts\build-desktop.ps1` 构建后手工附到同一个 Release，
+    附完要**重新生成清单**以覆盖它的哈希；release job 会把这段写进 run summary 以免漏做。
 
 - 缓存：pnpm store、Go build cache、uv cache、Electron 二进制（`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`）。
 - **体积门禁**：完整包 ≤300MB、**引擎目录 ≤250MB**（原 90MB，2026-09 按实测放宽）、**轻量包 ≤150MB**
@@ -323,7 +340,7 @@ OMOPredict/
 |---|---|
 | 纯前端（Web） | `pnpm dev`（Vite 代理 → Go :8080，jwt 模式）；前端自动走 http 传输 |
 | 壳开发 | Go/引擎按普通方式启动；壳 dev 模式加载 `http://localhost:5173`，Host 跳过子进程拉起（`OMO_DESKTOP_DEV=1`） |
-| 无壳本地调试 | `scripts/start-local.ps1`（Go `--stdio` + 引擎 `omo.rpc` + `rpc-cli.ps1` 手工联调） |
+| 无壳本地调试 | `scripts/start-local.ps1`：起调试桥（唯一监听端口，仅回环）+ 托管 `frontend/dist`，浏览器里跑完整无端口链路；也可用 `rpc-cli.ps1` 手工联调 |
 | 完整包/轻量包 | `build-desktop.ps1` / `build-lite.ps1`（T8/T9）；产物在 `desktop/release/` |
 | RPC 手工验证 | `rpc-cli.ps1 '{"jsonrpc":"2.0","id":1,"method":"tasks.list","params":{}}'` |
 
@@ -416,9 +433,9 @@ OMOPredict/
 | T6 Host 层 | ✅ 完成 | `desktop/src/host/`（**Electron 无关的纯 Node 模块**）：`paths`（D6 数据/日志目录，按目标平台选路径语义）+ `logger`（D7 按天日志、保留 7 天、目录不可用时退化为仅回显）+ `lines`（JSON-Lines 分帧：跨 chunk 半行、超长行丢弃）+ `rpc`（id↔Promise、单次超时、错误码=HTTP 语义、非法行/未知 id 只上报协议错误）+ `backend`（spawn、ping 健康检查、stderr 落盘、**退出时立刻失效在途请求**、限速重启、优雅关闭+超时强杀进程树、stdout 污染容忍）+ `engine`（只做 Go 看不到的引擎来源探测 + D9 第 5 级指引）+ `singleton`（文件锁）+ `host`（组装并注入 D6 环境变量，默认 `OMO_ENGINE_TRANSPORT=stdio`） |
 | T7 Electron 壳 | ✅ 完成（**未做运行期启动验证**，见下） | `src/main.ts`（主进程接线：单实例锁 + 聚焦已有窗口、`app://` 协议、菜单、IPC、优雅退出回收后端）、`src/preload.ts`（contextBridge 白名单，仅暴露 `rpc`/`openLogDir`/`openDataDir`）、`src/shell/`（与 Electron 解耦的壳逻辑：`appProtocol` app:// 解析 + 目录穿越防护 + CSP/安全头、`channels` IPC 通道与**结果信封**（避免 Electron 压掉 Error 的 `code`）、`preloadBridge`、`menu`、`windowOptions` 安全基线、`backendCommand` 打包/开发期定位、`diagnostics` 脱敏诊断）、`package.json` 的 electron-builder 配置（nsis + zip，extraResources：`dist/` + `omopredict-server.exe`） | `tsc --noEmit` **对真实 Electron 类型**干净（校验了 app/BrowserWindow/protocol/Menu/ipcMain 的全部用法）；**150 单测**（12 文件；含 app:// 目录穿越 5 种编码变体、CSP 无网络、IPC 信封跨进程边界、菜单/窗口安全基线、诊断脱敏）；集成测试新增**渲染进程可见链路**（`window.omo.rpc` → IPC 信封 → 真实 Go → 真实引擎，含 404 跨界） |
 | T8 轻量包 | ✅ 完成 | `scripts/setup-engine.ps1`（uv → pip 两条安装路径 + 发 ping 验证；失败一律给可操作指引）、`scripts/build-lite.ps1`（渲染产物 + Go 后端 + **引擎源码** + setup 脚本 + README → **三道体积门禁** → zip；`-AllowMissingShell` 支持无壳时只做暂存）、`desktop/lite/README.txt` 模板、`scripts/README.md` | 两个脚本**已实跑**：setup-engine 的成功/失败/自动发现/uv 四条路径、build-lite 的暂存（退出 2）/完整出包（退出 0）/两道门禁分别拦截（退出 1）；`desktop/` 集成测试新增**引擎不可用**用例（真实 Go 后端 + 不存在的解释器 → 任务落 `failed`，错误为 `engine: 启动 [...]: fork/exec ... cannot find the path specified`）；CI 新增 `packaging` job。体积门禁经 2026-09 决定放宽为 payload 50MB + 整包 150MB（见 §7） |
-| T9 契约一致性 + 脚本 + CI | 🔶 部分完成 | ✅ 已落地：后端 `internal/rpc/contract_test.go`（HTTP↔RPC 逐字段）、前端 vitest（5 文件 60 用例，含**两传输载荷一致性**）、桌面 vitest（150 用例 + 3 个门控集成用例）、**`rpc-cli.ps1`**（stdio 调试客户端，已实跑 ping/`tasks.list`/未知方法 `-32601`/直连引擎/坏 JSON 本地校验）、**`build-desktop.ps1`**（完整包：渲染 + Go + **PyInstaller sidecar** + 壳 TS（main ESM / preload CJS）→ electron-builder → 三道门禁；已实跑至 `-SkipPackaging`，并用打出的 sidecar 跑通数值一致性）、**体积门禁**（两脚本 + CI 反向验证"门禁真的会拦"）；⏳ 其余待做：`start-local.ps1`、Release 上传与 SHA256 清单、CI 六 job 补齐 |
+| T9 契约一致性 + 脚本 + CI | ✅ 完成 | ✅ 已落地：后端 `internal/rpc/contract_test.go`（HTTP↔RPC 逐字段）、前端 vitest（5 文件 60 用例，含**两传输载荷一致性**）、桌面 vitest（184 用例 + 3 个门控集成用例）、**`rpc-cli.ps1`**（stdio 调试客户端，已实跑 ping/`tasks.list`/未知方法 `-32601`/直连引擎/坏 JSON 本地校验）、**`build-desktop.ps1`**（完整包：渲染 + Go + **PyInstaller sidecar** + 壳 TS（main ESM / preload CJS）→ electron-builder → 三道门禁；已实跑至 `-SkipPackaging`，并用打出的 sidecar 跑通数值一致性）、**体积门禁**（两脚本 + CI 反向验证"门禁真的会拦"）、**`start-local.ps1` + `local-bridge.mjs`**（HTTP↔stdio 调试桥：浏览器里跑无端口全链路；桥核心 33 单测）、**`release-manifest.ps1`**（SHA256SUMS.txt + JSON 清单，`-Verify` 可反查、篡改必失败）、**CI `release` job**（`v*` tag 触发：版本一致性守卫 → 真打轻量包 → 清单 → 自校验 → `gh release create`）。⏳ 唯一没做的是**完整包进 Release**（要 electron-builder 的 Windows 目标，交回本机，见 §7 release job 说明） |
 | T10 文档 | ⏳ | 待做（T1/T3 的契约已先行写入 `docs/api/rest.md` 与 `docs/api/rpc.md`；T4.5 的 stdio 变体见 `docs/api/engine.md`） |
-| T11 净机验收 | ⏳ | 待做 |
+| T11 净机验收 | ⏳ | 待做（**壳的运行期启动/渲染已于 2026-10 实测通过，见 HANDOVER §6.35**；剩下 electron-builder 实跑与另一台干净机器） |
 
 > ✅ **T4.5 验证（2026-09，实测）**：新增 12 个 Go 测试（假引擎子进程走真实管道：仿真/反推往返、`code=422` 透传、
 > 超时、进程中途退出、Close 幂等、启动失败、D9 四级解析、命令行引号切分、乱序响应按 id 关联、
@@ -451,7 +468,9 @@ OMOPredict/
 > ⚠️ 仍未做：Host 的 lint/format 配置与 CI job（T9）；Electron 壳本身（T7）。
 > ✅ **T7 验证（2026-09，实测）**：`tsc --noEmit` 对**真实 Electron 类型**（electron 44.4.5）干净——
 > 这把主进程/preload 里 `app`/`BrowserWindow`/`protocol.handle`/`Menu`/`ipcMain`/`dialog`
-> 的用法都静态校验了一遍；`desktop/` 测试增至 **12 文件 150 用例**（+1 集成默认跳过）：
+> 的用法都静态校验了一遍；`desktop/` 测试增至 **13 文件 184 用例**（+1 集成默认跳过）：
+> 其中 **33 个**覆盖 T9 的本地调试桥（`scripts/local-bridge-lib.mjs`：REST↔RPC 路由映射、
+> JSON-Lines 客户端的乱序/分帧/超时/错误码、静态托管与**目录穿越防护**、真 HTTP server 往返）；
 > - `app://` 解析：命中文件 / 根路径 / 深链 SPA 回退 / 目录请求回退 / 百分号解码，
 >   以及**目录穿越的 5 种变体**（明文 `..`、`%2e%2e%2f`、`..%5c`、盘符绝对路径、NUL 字节）全部被挡；
 > - CSP 断言 `connect-src 'none'`（桌面形态渲染进程不该有任何网络能力）；
@@ -498,8 +517,12 @@ OMOPredict/
 >   同时确认产物里 `torch`/`fastapi`/`uvicorn`/`matplotlib` **0 条目**。
 > - **布局对齐**：PyInstaller `--distpath release-bin` 产出 `release-bin/omo-rpc/`，electron-builder 映射到
 >   `resources/engine`，于是 exe 落在 `resources/engine/omo-rpc.exe`——正是 Go 的 `findSidecar` 期望的位置。
-> - ⚠️ **仍未做**：electron-builder 本身（需 Electron 二进制）、`start-local.ps1`、Release 上传与 SHA256 清单。
+> - ✅ **T9 尾项也已落地（2026-10）**：`start-local.ps1` + `local-bridge.mjs`（HTTP↔stdio 调试桥；实测端到端
+>   `Rs=3.970819`、`T@550nm=0.974497`、`SE@10GHz=33.7036`、SPA 回退、删除任务、Ctrl+C 后无残留；
+>   桥核心 33 单测）与 `release-manifest.ps1`（生成 → 校验通过 → 篡改一字节必失败 → 空/缺目录退出 1），
+>   外加 §7 描述的 CI `release` job。
+> - ⚠️ **仍未做**：electron-builder 本身（需 Electron 二进制）、以及因此尚未把完整包发进 Release、净机验收（T11）。
 
 ---
 
-*本设计为第 3 稿评审件；已按 §11 拆解实施（T1–T8 ✅、T9 部分，进度见 §13），后续同步更新 AGENTS.md 里程碑与 HANDOVER。*
+*本设计为第 3 稿评审件；已按 §11 拆解实施（T1–T9 ✅，进度见 §13），后续同步更新 AGENTS.md 里程碑与 HANDOVER。*

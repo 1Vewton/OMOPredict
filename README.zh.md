@@ -43,12 +43,14 @@
 - ✅ T6 **桌面 Host 层**（`desktop/`）：数据目录/日志轮转/单实例锁/引擎来源探测/Go 子进程守护
   （崩溃即在途请求失败、限速重启、超时回收进程树）+ stdio JSON-RPC 客户端
 - ✅ T7 **Electron 壳**：主进程（`app://` 协议、菜单、IPC）+ preload 白名单；壳逻辑与 Electron 解耦，
-  150 单测（含 app:// 目录穿越防护、CSP 无网络、IPC 信封）；**壳的启动与渲染尚未实跑**（属 T11 净机验收）
+  184 单测（含 app:// 目录穿越防护、CSP 无网络、IPC 信封、调试桥）；**壳的启动与渲染已实跑通过**（2026-10）
 - ✅ T8 **轻量包**（`scripts/`）：`setup-engine.ps1`（用户在自备 Python 上装引擎并 ping 验证，失败给可操作指引）
   + `build-lite.ps1`（渲染产物 + Go 后端 + 引擎源码 → 体积门禁 → zip）
-- ✅ T9 大部分 **完整包与调试工具**：`build-desktop.ps1`（+ **PyInstaller 引擎 sidecar**，实测能算对结果且无
+- ✅ T9 **完整包、调试工具与发布**：`build-desktop.ps1`（+ **PyInstaller 引擎 sidecar**，实测能算对结果且无
   torch/fastapi 泄漏）+ `rpc-cli.ps1`（stdio 协议调试）+ 壳 TS 编译（main=ESM / preload=CJS）+ 体积门禁
-- ⏳ M5 剩余（报告导出、高级寻优、NN 代理加速）/ M6 剩余（T9 尾项 `start-local.ps1`/Release、T11 净机验收）
+  + **`start-local.ps1` + HTTP↔stdio 调试桥**（浏览器里跑完整无端口链路，实测 Rs=3.970819 / T@550nm=0.974497 /
+  SE@10GHz=33.7036）+ **`release-manifest.ps1`**（SHA256SUMS.txt + JSON 清单，`-Verify` 可反查）+ **tag 触发的 release job**
+- ⏳ M5 剩余（报告导出、高级寻优、NN 代理加速）/ M6 剩余（T10 文档收尾、T11 净机验收与 electron-builder 实跑）
 
 ## 快速开始
 
@@ -81,10 +83,14 @@ powershell -ExecutionPolicy Bypass -File scripts\setup-engine.ps1   # 准备/验
 powershell -ExecutionPolicy Bypass -File scripts\build-lite.ps1     # 出轻量包
 powershell -ExecutionPolicy Bypass -File scripts\build-desktop.ps1  # 出完整包（含 PyInstaller 引擎）
 powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method ping   # 协议调试
+
+# 无壳本地调试：浏览器里跑完整"无端口"链路（不需要 Electron）
+powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1    # 加 -Open 自动开浏览器
+powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1 -Verify   # 校验发布清单
 ```
 
-详细启动/配置/接口见文档索引。桌面版已完成到 T8、T9 大部分（脚本与内置引擎已实跑）；
-**壳的启动与渲染、electron-builder 打包尚未实跑**，属 T11，详见 `docs/desktop.md` §13。
+详细启动/配置/接口见文档索引。桌面版 T1–T9 已完成（脚本、内置引擎、调试桥与发布清单均已实跑）；
+**壳的启动与渲染已实测通过，但 electron-builder 打包与净机验收尚未实跑**，属 T11，详见 `docs/desktop.md` §13。
 
 ## 局限性与适用范围（Limitations）
 
@@ -136,10 +142,14 @@ powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method ping   # �
   MySQL/PostgreSQL 已支持但 CI 只覆盖 SQLite。
 - **无速率限制与配额**，任务结果一次性写入（无版本化/重算）。
 - **测试覆盖不均**：Python/Go 有较完整单测与对标测试；前端已有 vitest 单测
-  （传输抽象/端点映射/能力门禁/路由守卫/历史页删除，5 文件 60 用例），但**仍无浏览器端到端测试，
-  真实 Electron 壳也未冒烟**。
+  （传输抽象/端点映射/能力门禁/路由守卫/历史页删除，5 文件 60 用例），但**仍无浏览器端到端测试**；
+  桌面侧 **184 单测**（含调试桥 33 个）+ 3 个需环境变量的真实端到端集成用例，
+  **真实 Electron 壳已冒烟通过**（2026-10），但 `electron-builder` 打包与净机验收仍未做（属 T11）。
 - **桌面版尚未交付**（设计见 `docs/desktop.md`）：当前仍是三进程 Web 形态；规划中的桌面包将
   **排除 torch（无 NN 加速）**、无代码签名与自动更新、Windows 优先、轻量包需用户自备 Python。
+  ⚠️ **`scripts/start-local.ps1` 起的调试桥会监听一个回环端口**——它是开发期工具（绑 `127.0.0.1`、
+  封闭路由白名单、只跟自己拉起的后端说话），**不是**产品形态；产品链路（壳 / 完整包 / 轻量包）
+  运行期**不监听任何端口**。
 - **未实现**：报告导出、**通用**逆向设计（任意层数/层序、自定义目标函数——现有目标反推已覆盖
   固定三层的硬约束膜厚反推，见 §3）、更多材料体系、`omo-cli simulate` 子命令等（见里程碑 ⏳）。
 

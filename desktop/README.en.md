@@ -2,15 +2,16 @@
 
 > **English** · [中文版](README.md)
 
-> Design in [`docs/desktop.md`](../docs/desktop.md); this directory currently implements **T6 (Host layer)**.
+> Design in [`docs/desktop.md`](../docs/desktop.md); this directory implements **T6 (Host layer) + T7 (Electron shell)**.
 
 ## Status
 
 | Task | Status | Description |
 |---|---|---|
 | **T6 Host layer** | ✅ Complete | `src/host/`: directories/logging/single instance/engine source/Go child-process supervision + stdio JSON-RPC client |
-| **T7 Electron shell** | ✅ Complete (**never launched**) | `src/main.ts` + `src/preload.ts` + `src/shell/`; `tsc --noEmit` is clean against real Electron types, 150 unit tests |
-| T8 lightweight package / T9 packaging and CI | ⏳ To do | `setup-engine.ps1`, `build-desktop.ps1` / `build-lite.ps1`, size gates |
+| **T7 Electron shell** | ✅ Complete (**has been launched**, see below) | `src/main.ts` + `src/preload.ts` + `src/shell/`; `tsc --noEmit` is clean against real Electron types, **184 unit tests** |
+| T8 lightweight package / T9 packaging, debug bridge, release | ✅ Complete | Scripts live in `../scripts/`: `setup-engine.ps1`, `build-lite.ps1`, `build-desktop.ps1`, `rpc-cli.ps1`, `start-local.ps1` (+ debug bridge), `release-manifest.ps1` |
+| T10 documentation / T11 clean-machine acceptance | ⏳ To do | What remains is a real `electron-builder` run and acceptance on a second, clean machine |
 
 **Both the Host layer and the shell logic deliberately do not depend on Electron** (`src/host/` and `src/shell/` are pure Node modules), so the vast majority of the
 code can be unit-tested in a GUI-less environment; only `src/main.ts` / `src/preload.ts` are Electron wiring.
@@ -25,6 +26,11 @@ code can be unit-tested in a GUI-less environment; only `src/main.ts` / `src/pre
 > `ELECTRON_DISABLE_SANDBOX=1` (see HANDOVER §6.31; the smoke script below **retries automatically**
 > and says so explicitly). ⏳ Still not done: running `electron-builder` and acceptance on a second,
 > clean machine (part of T11).
+
+> 💡 **Do not want to fetch the Electron binary but still want to see the UI and the whole chain?**
+> Use `scripts\start-local.ps1`: it starts a local debug bridge (HTTP ↔ Go `--stdio` ↔ engine) and serves
+> `frontend/dist`, so a browser is all you need. It is the same no-port process tree, just with one
+> loopback-only debug entry point.
 
 ## Smoke check (one command to decide whether the shell runs)
 
@@ -148,4 +154,5 @@ pnpm exec electron dist/main.js
 ```
 
 > ⚠️ Step 3 above depends on the T9 build scripts (the current `tsconfig.json` is `noEmit`, and the preload needs to output `.cjs`).
-> Until T9 fills this in, **the way to run it is not yet settled**; this is part of why "the shell has never been launched".
+> It is now easier to run the delivered script instead: `powershell -ExecutionPolicy Bypass -File scripts\build-desktop.ps1`
+> (or `-SkipPackaging` to stop after the shell TS + size gates), then use `scripts\smoke-desktop.ps1` to decide in one command whether it launches.

@@ -45,12 +45,14 @@ measured data from high-level papers**, for performance prediction and process-o
 - ✅ T6 **desktop Host layer** (`desktop/`): data directory/log rotation/single-instance lock/engine source discovery/Go child-process guard
   (in-flight requests fail on a crash, rate-limited restart, process-tree reclamation on timeout) + stdio JSON-RPC client
 - ✅ T7 **Electron shell**: main process (`app://` protocol, menu, IPC) + preload allowlist; shell logic decoupled from Electron,
-  150 unit tests (including app:// directory-traversal protection, CSP with no network, IPC envelope); **the shell's startup and rendering have not yet been run for real** (belongs to T11 clean-machine acceptance)
+  184 unit tests (including app:// directory-traversal protection, CSP with no network, IPC envelope, debug bridge); **the shell's startup and rendering have been run for real** (2026-10)
 - ✅ T8 **lightweight package** (`scripts/`): `setup-engine.ps1` (the user installs the engine on their own Python and verifies it with a ping; on failure it gives actionable guidance)
   + `build-lite.ps1` (render artefacts + Go backend + engine source → size gate → zip)
-- ✅ T9 mostly **full package and debugging tools**: `build-desktop.ps1` (+ **PyInstaller engine sidecar**, measured to compute correct results with no
+- ✅ T9 **full package, debugging tools and release**: `build-desktop.ps1` (+ **PyInstaller engine sidecar**, measured to compute correct results with no
   torch/fastapi leakage) + `rpc-cli.ps1` (stdio protocol debugging) + shell TS compilation (main=ESM / preload=CJS) + size gate
-- ⏳ M5 remaining (report export, advanced optimization, NN surrogate acceleration) / M6 remaining (T9 tail items `start-local.ps1`/Release, T11 clean-machine acceptance)
+  + **`start-local.ps1` and an HTTP↔stdio debug bridge** (drives the whole no-port chain from a browser; measured Rs=3.970819 / T@550nm=0.974497 /
+  SE@10GHz=33.7036) + **`release-manifest.ps1`** (SHA256SUMS.txt + JSON manifest, re-checkable with `-Verify`) + a **tag-triggered release job**
+- ⏳ M5 remaining (report export, advanced optimization, NN surrogate acceleration) / M6 remaining (T10 documentation, T11 clean-machine acceptance and a real electron-builder run)
 
 ## Quick start
 
@@ -83,10 +85,14 @@ powershell -ExecutionPolicy Bypass -File scripts\setup-engine.ps1   # prepare/ve
 powershell -ExecutionPolicy Bypass -File scripts\build-lite.ps1     # produce the lightweight package
 powershell -ExecutionPolicy Bypass -File scripts\build-desktop.ps1  # produce the full package (with PyInstaller engine)
 powershell -ExecutionPolicy Bypass -File scripts\rpc-cli.ps1 -Method ping   # protocol debugging
+
+# Shell-less local run: drive the whole no-port chain from a browser (no Electron needed)
+powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1    # add -Open to launch a browser
+powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1 -Verify   # check a release manifest
 ```
 
-For detailed startup/configuration/interfaces see the document index. The desktop version is complete through T8 and mostly through T9 (the scripts and the bundled engine have been run for real);
-**the shell's startup and rendering, and electron-builder packaging, have not yet been run for real**, which belongs to T11; see `docs/desktop.md` §13 for details.
+For detailed startup/configuration/interfaces see the document index. The desktop version is complete through T9 (the scripts, the bundled engine, the debug bridge and the release manifest have all been run for real);
+**the shell's startup and rendering have been verified, but electron-builder packaging and clean-machine acceptance have not**, which belongs to T11; see `docs/desktop.md` §13 for details.
 
 ## Limitations and scope of applicability (Limitations)
 
@@ -138,10 +144,14 @@ For detailed startup/configuration/interfaces see the document index. The deskto
   MySQL/PostgreSQL are already supported but CI only covers SQLite.
 - **No rate limiting and no quotas**, and task results are written once (no versioning/recomputation).
 - **Uneven test coverage**: Python/Go have fairly complete unit tests and benchmarking tests; the frontend already has vitest unit tests
-  (transport abstraction/endpoint mapping/capability gate/route guard/history-page deletion, 5 files 60 cases), but there are **still no browser end-to-end tests,
-  and the real Electron shell has not been smoke-tested either**.
+  (transport abstraction/endpoint mapping/capability gate/route guard/history-page deletion, 5 files 60 cases), but there are **still no browser end-to-end tests**;
+  the desktop side has **184 unit tests** (33 of them covering the debug bridge) plus 3 environment-gated real end-to-end cases, and
+  **the real Electron shell has been smoke-tested** (2026-10), though `electron-builder` packaging and clean-machine acceptance are still not done (T11).
 - **The desktop version has not yet been delivered** (design see `docs/desktop.md`): it is still the three-process web form; the planned desktop package will
   **exclude torch (no NN acceleration)**, have no code signing and no auto-update, be Windows-first, and the lightweight package requires the user to supply Python.
+  ⚠️ **The debug bridge started by `scripts/start-local.ps1` does listen on one loopback port** — it is a development tool (bound to `127.0.0.1`,
+  closed route allowlist, only talks to the backend it spawned itself), **not** a product form; the product paths (shell / full package / lightweight package)
+  listen on no port at runtime.
 - **Not implemented**: report export, **general** inverse design (arbitrary number of layers/layer order, custom objective functions — the existing inverse design already covers
   hard-constrained thickness inverse design for a fixed three layers, see §3), more material systems, the `omo-cli simulate` subcommand, etc. (see the ⏳ milestones).
 
