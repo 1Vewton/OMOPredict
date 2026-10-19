@@ -108,16 +108,75 @@ describe('resolveStaticFile（渲染产物托管）', () => {
     expect(asset).toMatchObject({ filePath: '/srv/dist/index.html', spaFallback: true })
   })
 
-  it('挡住目录穿越（含百分号编码变体与 NUL 字节）', () => {
-    for (const attempt of [
-      '/../../etc/passwd',
-      '/..%2f..%2fetc/passwd',
-      '/%2e%2e%2f%2e%2e%2fetc/passwd',
-      '/assets/../../../../etc/passwd',
-      '/%2e%2e%5c%2e%2e%5cwindows%5cwin.ini',
-      '/assets/app.js%00.png',
-      '/%ZZ', // 非法百分号编码
-    ]) {
+  // 这两个平台分别代表"分隔符是 /"与"分隔符是 \\"。之前那组穿越用例只跑 linux，
+  // 于是 Windows 形态的写法全靠一条"POSIX 下拒反斜杠"的特判挡着，从未在 win32 语义下验过
+  // —— 这就是"穿越被 SPA 回退掩盖"当初没被测出来的原因。两条路径都要跑同一张表。
+  const PLATFORMS = [
+    { platform: 'linux', root: '/srv/dist' },
+    { platform: 'win32', root: 'C:\\app\\resources\\dist' },
+  ] as const
+
+  describe.each(PLATFORMS)('跨平台一致（$platform）', ({ platform, root: platformRoot }) => {
+    const platformDeps = {
+      platform,
+      exists: (p: string) =>
+        p.endsWith('/index.html') || p.endsWith('\\index.html') || p.endsWith('/assets/app.js'),
+      isFile: () => true,
+    }
+
+    it('穿越意图一律 null，绝不落进 SPA 回退', () => {
+      // 每条都含点段（"." 或 ".."）：不管最终是否恰好仍在 root 内，都必须被拒。
+      // 用 SPA 回退"接住"它们等于用 200 + index.html 回应一次穿越尝试。
+      for (const attempt of [
+        '/../../etc/passwd',
+        '/..%2f..%2fetc/passwd',
+        '/%2e%2e%2f%2e%2e%2fetc/passwd',
+        '/assets/../../../../etc/passwd',
+        '/..%5c..%5cwindows%5cwin.ini',
+        '/%2e%2e%5c%2e%2e%5cwindows%5cwin.ini',
+        '/assets\\..\\..\\..\\etc\\passwd',
+        '/%2e%2e',
+        '/..',
+        // 这些在旧实现里会被 resolve 折叠回 root 内，从而"成功"回退 index.html
+        '/a/../design',
+        '/a/./optimize',
+        '/a/..',
+        '/assets/../index.html',
+      ]) {
+        expect(resolveStaticFile(attempt, platformRoot, platformDeps), attempt).toBeNull()
+      }
+    })
+
+    it('含点的文件名不被误伤（只有点段才拒，点号是普通字符）', () => {
+      // 点号不是点段：v0.1.0.json / app.min.js 必须照常解析（不存在则正常回退，而不是被拒）
+      for (const ok of ['/v0.1.0.json', '/assets/app.min.js', '/a.b/c.d']) {
+        const asset = resolveStaticFile(ok, platformRoot, platformDeps)
+        expect(asset, ok).not.toBeNull()
+        expect(asset!.spaFallback, ok).toBe(true) // 测试环境里这些文件不存在，回退是正确行为
+      }
+    })
+
+    it('反斜杠只在 win32 上当分隔符，不会因此被误判为穿越或拒绝', () => {
+      // POSIX 上 "a\b" 是对等的一个文件名；win32 上是两层。两者都不是点段，都不该返回 null。
+      const result = resolveStaticFile('/a%5cb', platformRoot, platformDeps)
+      expect(result, '\\ 不应导致 null').not.toBeNull()
+      expect(result!.spaFallback).toBe(true)
+    })
+  })
+
+  it('Windows 盘符绝对路径被拦（段级检查看不到，靠越界兜底）', () => {
+    // 不以分隔符打头，段级检查无从发现；解析到 C:\Windows 后必须被"必须在 root 内"拦住。
+    expect(
+      resolveStaticFile('/C:%5cWindows%5cwin.ini', 'C:\\app\\resources\\dist', {
+        platform: 'win32',
+        exists: () => true,
+        isFile: () => true,
+      }),
+    ).toBeNull()
+  })
+
+  it('挡住非法编码与 NUL 字节（与平台无关）', () => {
+    for (const attempt of ['/assets/app.js%00.png', '/%ZZ']) {
       expect(resolveStaticFile(attempt, root, deps), attempt).toBeNull()
     }
   })

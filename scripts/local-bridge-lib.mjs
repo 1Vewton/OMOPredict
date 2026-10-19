@@ -79,9 +79,19 @@ export function mimeFor(filePath) {
  * Resolve a URL pathname to a file inside the renderer dist directory.
  *
  * Security: this decides which files the browser can read, so path traversal must be blocked,
- * including percent-encoded variants (`%2e%2e%2f`) and NUL bytes. The rule is the same one the
- * Electron shell uses (desktop/src/shell/appProtocol.ts): decode, then require the resolved path
- * to stay under the root.
+ * including percent-encoded variants (`%2e%2e%2f`) and NUL bytes.
+ *
+ * The rule is **intent**, not outcome: any path that needs `.`/`..` normalisation is refused
+ * outright, *before* resolving. Deciding purely by "does the resolved path stay under the root"
+ * is not enough - `/a/../design` and `/a/..` normalise back inside the root, so such requests would
+ * fall through to the SPA fallback and get a 200 with index.html. That is a traversal attempt being
+ * answered successfully, and it is platform-dependent besides: on win32 the segments fold away
+ * inside the root, while on POSIX the same spelling can be a literal filename. Checking the
+ * decoded segments is the same answer on every platform.
+ *
+ * Backslashes keep their host semantics: on Windows they separate segments (and the ".." check
+ * catches them), elsewhere they are ordinary filename characters and never escape anything - which
+ * is why a path containing a backslash must not be mistaken for a traversal attempt there.
  *
  * Unknown paths fall back to `index.html` (SPA deep links); no fallback and no file -> null so the
  * caller can answer 404 instead of pretending.
@@ -105,17 +115,25 @@ export function resolveStaticFile(pathname, rootDir, deps = {}) {
   }
   if (decoded.includes('\0')) return null
 
+  // Traversal intent: refuse any dot-segment instead of resolving it and asking whether the
+  // result escaped. See the doc comment above for why outcome-based checking is not enough,
+  // and HANDOVER 6.36 for how the first, weaker version of this guard hid the problem.
+  //
+  // The check is separator-agnostic on purpose: "/..%5c..%5cwindows" is one literal filename on
+  // POSIX and two ".." segments on Windows, but it is the same intent either way, and the answer
+  // must not depend on which host happens to serve it. A dot in the *middle* of a segment
+  // ("app.min.js", "v0.1.0.json") is an ordinary character and stays allowed.
+  if (decoded.split(/[/\\]/).some((segment) => segment === '..' || segment === '.')) {
+    return null
+  }
+
+  // From here on, only the host's real separator matters for resolution.
   const root = p.resolve(rootDir)
   const relative = decoded.replace(/^[/\\]+/, '')
-
-  // On POSIX a backslash is an ordinary filename character, so "\..\..\x" neither escapes nor
-  // resolves to anything real - it would quietly fall through to the SPA fallback and mask a
-  // traversal attempt. Refuse backslashes outright where they cannot be separators.
-  if (p.sep === '/' && decoded.includes('\\')) return null
-
   const candidate = relative.length === 0 ? root : p.resolve(root, relative)
 
-  // Traversal guard: the resolved path must still live under root.
+  // Belt and braces: the resolved path must still live under root (catches platform-specific
+  // spellings the segment check above cannot see, e.g. a Windows drive-relative path).
   const rootWithSep = root.endsWith(p.sep) ? root : `${root}${p.sep}`
   if (candidate !== root && !candidate.startsWith(rootWithSep)) return null
 

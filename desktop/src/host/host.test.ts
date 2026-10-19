@@ -190,7 +190,7 @@ describe('buildBackendEnv（D6：桌面版注入的环境变量）', () => {
 
   it('顺带定好 Python 的 stdio 编码（引擎是孙进程，只能从这里传下去）', () => {
     // 没有这两个变量时，Windows 上引擎按 ANSI 代码页写 stderr：它的 UTF-8 日志落进
-    // logs/backend.log 就是乱码，而紧挨着的 Go 日志正常 —— 见 HANDOVER 6.36。
+    // logs/backend.log 就是乱码，而紧挨着的 Go 日志正常 —— 见 HANDOVER 6.38。
     const env = buildBackendEnv({}, paths, noEngine)
     expect(env.PYTHONUTF8).toBe('1')
     expect(env.PYTHONIOENCODING).toBe('utf-8')

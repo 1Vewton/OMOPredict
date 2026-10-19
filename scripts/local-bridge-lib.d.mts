@@ -51,8 +51,10 @@ export interface ResolvedAsset {
 /**
  * Resolve a URL pathname to a file inside the renderer dist directory.
  *
- * Returns null when the renderer is not built, the path is malformed, or the path escapes the
- * root (traversal guard); callers answer 404 in that case.
+ * Returns null when the renderer is not built, the path is malformed, or it expresses traversal
+ * intent. The rule is **intent, not outcome**: any path containing a `.`/`..` segment is refused
+ * before resolving (separator-agnostic), because such paths can normalise back *inside* the root
+ * and would otherwise be answered with a 200 + index.html SPA fallback. Callers answer 404.
  */
 export declare function resolveStaticFile(
   pathname: string,

@@ -42,7 +42,7 @@ OMO（氧化物/金属/氧化物）纳米多层薄膜仿真设计软件：三层
 
 测试现状：Python **132 passed / ruff 0**（2026-09 文件权限修复后不再有 tmp_path 报错，见 §6.22；此前记录的"128 passed + 4 个 PermissionError"已过时）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流、单用户模式与 **12 个 stdio 引擎用例**）；前端 `pnpm lint` 0 告警 + `pnpm test`（**vitest：5 文件 60 用例**）+ `pnpm build`（`vue-tsc -b` + `vite build`）通过；桌面 `desktop/`：`pnpm type-check`（含真实 Electron 类型）+ `pnpm build`（main ESM / preload CJS）+ `pnpm test`（**13 文件 184 用例**，其中 33 个覆盖 `scripts/lib/local-bridge.mjs`，
 另有 3 个需环境变量门控的真实端到端集成用例，已实跑通过——包括对着 **PyInstaller 打出的 sidecar** 跑）通过；
-`scripts/` 六个脚本本机实跑过（见 §7 的 T8/T9 块；本机没有 `pwsh`，见 §6.39）。
+`scripts/` 六个脚本本机实跑过（见 §7 的 T8/T9 块；本机没有 `pwsh`，见 §6.40）。
 
 ## 3. 三层架构与启动
 
@@ -301,7 +301,24 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
     → 冒烟自检也从"页面加载成功"升级为**在渲染进程里真调一次 `window.omo.rpc('meta')`**：
     只渲染成功打 `PARTIAL` 并退 1，桥不通绝不冒充成功。
     仍未做：**electron-builder 实跑**（完整包/轻量包的最终产物形态）、安装包在**净机**上的验收。
-36. **⚠️ 引擎 stderr 在 Windows 上是 ANSI 编码，会与 Go 日志混成乱码（2026-10 实测）**：
+36. **⚠️ 穿越防护要按"意图"判，不能按"结果"判（2026-10 修正，第一次修得不彻底）**：
+    调试桥的静态托管最初照抄 `appProtocol.ts` 的规则——"解码后解析，要求结果仍在 root 内"，
+    外加一条 POSIX 下拒绝反斜杠的特判。这条规则有**两个毛病**：
+    1. **按结果判会漏掉"想穿越但没越界"的请求**：`/a/../design`、`/a/..`、`/a/./optimize` 会被
+       `resolve` 折叠回 root 内，于是**落进 SPA 回退**，用 `200` + `index.html` 回应一次穿越尝试。
+       而 `/../../etc/passwd` 得到的是 404——**同一个意图、两种答案**，取决于它有没有越界。
+    2. **判定依赖平台**：win32 下 `..` 是段、POSIX 下 `..\..\x` 只是一个带反斜杠的文件名。
+       原实现靠"POSIX 下拒反斜杠"补洞，等于让"被不被挡"取决于 `platform`。
+    正确做法：**在解析之前按段判定意图**，`decoded.split(/[/\\]/)` 里有 `.` 或 `..` 段就拒绝
+    （分隔符无关，两个平台答案一致）；点号在段中间不是点段（`app.min.js`、`v0.1.0.json` 照常放行）。
+    然后**再**用"必须仍在 root 内"做兜底（挡住段级检查看不见的写法，如 Windows 盘符绝对路径）。
+    **用例教训**：原来那组穿越用例只跑 `platform: 'linux'`，Windows 形态全靠"拒反斜杠"那条特判挡着，
+    从未在 win32 语义下验过——所以掩蔽问题没被测出来。现在用 `describe.each` 在
+    **linux 与 win32 两条路径上跑同一张表**，并显式断言"穿越意图一律 null，绝不落进 SPA 回退"。
+    验证方式也值得记住：`Invoke-WebRequest` 会**在客户端先规范化** `..`（`/a/../design` 变成
+    `/design` 才发出去），所以用它测穿越会得到误导性的 `200`；要测**原始请求**必须用
+    `TcpClient` 手写请求行。用原始套接字复核：5 种穿越写法全部 `404`、`html=False`。
+37. **⚠️ 引擎 stderr 在 Windows 上是 ANSI 编码，会与 Go 日志混成乱码（2026-10 实测）**：
     把 Go 的 stderr（UTF-8，正常）与引擎的 stderr 一起收进同一个日志文件时，**引擎那几行是乱码**：
 
     ```
@@ -316,18 +333,18 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
     `buildBackendEnv`（壳的 Host 层，那里也会把后端 stderr 写进 `logs/backend.log` 与诊断包）。
     排障时的迷惑点：**同一份日志里 Go 行正常、引擎行乱码**，很容易误判成"引擎挂了/协议坏了"；
     实际上只是编码。修好后两边的中文都能正常读。
-37. **⚠️ `Start-Process` 不允许 stdout 与 stderr 指向同一个文件（2026-10 实测）**：
+38. **⚠️ `Start-Process` 不允许 stdout 与 stderr 指向同一个文件（2026-10 实测）**：
     `-RedirectStandardOutput $f -RedirectStandardError $f` 在 Windows PowerShell 5.1 上直接报
     "无法运行此命令，因为 RedirectStandardOutput 和 RedirectStandardError 相同"，
     而且**报错发生在启动之前**，脚本会以为"子进程起不来"。→ 写成两个文件（`*.stdout.log` /
     `*.stderr.log`），报错时两个都 tail。`start-local.ps1` 就是这么做的。
     另注：`-NoNewWindow` 与任何输出重定向**不能同时用**。
-38. **⚠️ PowerShell 的 `-f` 不接受逗号列表当参数数组（2026-10 实测）**：
+39. **⚠️ PowerShell 的 `-f` 不接受逗号列表当参数数组（2026-10 实测）**：
     `"... {0} {1} {2}" -f $a, $b + '...', $c` 会解析成意外的东西，报
     "Error formatting a string: Index (zero based) must be greater than or equal to zero and less than
     the size of the argument list"。→ 先把每个值算成变量，再显式传**一个数组**：
     `-f @($a, $b, $c)`。`release-manifest.ps1` 与 `build-desktop.ps1` 都按这个写法。
-39. **⚠️ 本机没有 `pwsh`，只有 Windows PowerShell 5.1（2026-10 实测）**：
+40. **⚠️ 本机没有 `pwsh`，只有 Windows PowerShell 5.1（2026-10 实测）**：
     `pwsh` 不在 PATH 上（`Get-Command pwsh` 失败），所以
     `pwsh -File scripts\xxx.ps1` 这条**文档里到处在用的命令在本机跑不了**；直接 `& .\scripts\xxx.ps1`
     又会被执行策略挡住（`AuthorizationManager 检查失败`）。可用的形式是
@@ -472,7 +489,7 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
     实测：`Rs = 3.970819`、`T@550nm = 0.974497`、`SE@10GHz = 33.7036`（与契约一致）、
     SPA 深链回退、`/api/auth/me` 本地回答、删除任务、Ctrl+C 后端口释放无残留。
     期间修的真实问题：POSIX 上反斜杠路径会**静默退化成 SPA 回退**（掩盖穿越尝试）→ 显式拒绝；
-    引擎 stderr 编码（见 §6.36）；`Start-Process` 同文件重定向限制（见 §6.37）。
+    引擎 stderr 编码（见 §6.38）；`Start-Process` 同文件重定向限制（见 §6.39）。
   - `scripts/release-manifest.ps1`：产物 → `SHA256SUMS.txt`（`sha256sum` 兼容、UTF-8 无 BOM、仅 LF）
     + `omopredict-<version>.json`（version/commit/每产物 hash+size）；`-Verify` 逐条反查。
     只收 `-InputDir` 的**直接子文件**（排除 `*.json`），`-Include` 可显式补充。
@@ -508,7 +525,7 @@ NN 代理 v2（材料参数入特征 / 逆向设计）。
    `cd frontend && pnpm lint && pnpm test && pnpm build`、`cd desktop && pnpm type-check && pnpm test`
    （**注意 §6.11/§6.22/§6.23**：沙箱文件权限与 `%TEMP%` 写入限制会让 vite/esbuild、node_modules 与 SQLite 失败；
    本机 `desktop` 的 `pnpm test` 可能因 pnpm 判定 node_modules 过期而中止，可直接跑
-   `desktop\node_modules\.bin\vitest.cmd run` 绕过，见 §6.39 那条的同类环境问题）
+   `desktop\node_modules\.bin\vitest.cmd run` 绕过，见 §6.40 那条的同类环境问题）
 3. 若续做桌面版：**T1–T9 全部完成**，剩下的是 **T10 文档收尾 + T11 净机验收**（**electron-builder 从未实跑**、
    完整包进 Release 需在本地 Windows 上做、装上另一台干净机器验收）；
    装上 Electron 二进制后请**先做 T11 的运行期验收**（壳启动/渲染/CSP/preload，见下）；

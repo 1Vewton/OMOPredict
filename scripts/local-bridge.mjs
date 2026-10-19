@@ -124,7 +124,7 @@ const childEnv = {
   // The engine is a grandchild (Go spawns it), so its encoding cannot be fixed further down.
   // Without this, Python on Windows encodes stderr with the ANSI code page and its log lines
   // reach the log file as mojibake while the Go lines right next to them are fine - a confusing
-  // mix to debug (HANDOVER 6.36).
+  // mix to debug (HANDOVER 6.38).
   PYTHONUTF8: '1',
   PYTHONIOENCODING: 'utf-8',
 }
