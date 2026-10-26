@@ -118,6 +118,22 @@ describe('Backend 正常路径', () => {
     await b.stop(5_000)
     await expect(b.stop(1_000)).resolves.toBeUndefined()
   })
+
+  it('跨 chunk 的 UTF-8 stderr 不被切坏（多字节字符不能变成 U+FFFD）', async () => {
+    // 引擎写的是 UTF-8 中文；管道可以在任意字节处分块，包括把一个汉字的 3 个字节切开。
+    // 若按 chunk 各自 toString('utf8')，两个残片都会变成 U+FFFD，日志里就成了乱码
+    // ——这正是"引擎日志与 Go 日志混成乱码"的另一半原因（HANDOVER 6.37）。
+    const b = makeBackend({ mode: 'stderr-split' })
+    await b.start()
+    await b.invoke('tasks.list')
+    await sleep(300) // 等第二次 write 与落盘
+    await b.stop(5_000)
+
+    const file = log.currentFile()
+    const text = readFileSync(file, 'utf8')
+    expect(text).not.toContain('\uFFFD')
+    expect(text).toContain('引擎日志：就绪')
+  })
 })
 
 describe('Backend 失败路径', () => {

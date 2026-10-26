@@ -39,6 +39,16 @@ const DefaultEngineTimeout = 60 * time.Second
 // （周期性健康检查与"3 次/10min"上限属 Host 层职责，见 docs/desktop.md D5/T6。）
 const engineRestartMinInterval = 3 * time.Second
 
+// engineEncodingEnv 拉引擎时强制 UTF-8 的 stdio 编码。
+//
+// 引擎的 stderr 会并入 Go 的 stderr（桌面形态下再被 Host 收进同一个日志文件），
+// 而 Python 在 Windows 上默认按 ANSI 代码页编码 stderr —— 结果是 Go 行正常、引擎行乱码。
+// 必须在"拉起引擎"这一步设，因为这是唯一能影响引擎的环境边界（docs/HANDOVER.md 6.37）。
+var engineEncodingEnv = []string{
+	"PYTHONUTF8=1",
+	"PYTHONIOENCODING=utf-8",
+}
+
 // rpcRequest JSON-RPC 2.0 请求（与 omo/rpc 对齐）。
 type rpcRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -221,8 +231,14 @@ func (s *StdioEngine) startLocked() error {
 	if s.command.Dir != "" {
 		cmd.Dir = s.command.Dir
 	}
+	// 引擎的 stderr 会并入本进程 stderr（见下），所以它的编码必须在**真正拉起它的地方**定死。
+	// Python 在 Windows 上默认按 ANSI 代码页写 stderr，而 Go 写 UTF-8；两者进同一个日志文件时
+	// 就是"Go 行正常、引擎行乱码"（docs/HANDOVER.md 6.37）。放在这里而不是只放在调用方，
+	// 是为了让桌面壳、start-local、rpc-cli、手工 `--stdio` 四种入口行为一致。
+	cmd.Env = append(os.Environ(), engineEncodingEnv...)
 	if len(s.command.Env) > 0 {
-		cmd.Env = append(os.Environ(), s.command.Env...)
+		// 调用方显式给的优先级最高（便于排障时覆盖）
+		cmd.Env = append(cmd.Env, s.command.Env...)
 	}
 	// stdout 是协议流（只允许 JSON-RPC 行）；引擎日志必须走 stderr，并入本进程 stderr。
 	cmd.Stderr = os.Stderr

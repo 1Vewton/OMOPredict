@@ -34,13 +34,13 @@ OMO（氧化物/金属/氧化物）纳米多层薄膜仿真设计软件：三层
 
 | **M6-b T6** | ✅ | **桌面 Host 层**（`desktop/src/host/`，**Electron 无关的纯 Node 模块**）：`paths`（D6 数据/日志目录，按目标平台选路径语义）、`logger`（D7 按天日志+保留 7 天，目录不可用则退化为仅回显）、`lines`（JSON-Lines 分帧）、`rpc`（id↔Promise、超时、错误码=HTTP 语义、非法行只报协议错误）、`backend`（spawn/ping/日志捕获/**退出即失效在途请求**/限速重启/超时强杀进程树/stdout 污染容忍）、`engine`（只做 Go 看不到的来源探测 + D9 第 5 级指引）、`singleton`（文件锁）、`host`（组装并注入 D6 环境变量，默认 `OMO_ENGINE_TRANSPORT=stdio`） | `tsc --noEmit` 干净；**91 单测 + 1 集成测试**（真子进程走真管道：分帧/乱序关联/超时/崩溃即在途失败/重启限速/启动失败不重启/锁回收/日志轮转）；**真实端到端**：Host → Go `--stdio` → 真实引擎 → Rs≈3.9708 / T@550nm≈0.9745 / SE@10GHz≈33.70 + **后端无监听端口** + 退出无残留 |
 
-| **M6-b T7** | ✅ | **Electron 壳**：`src/main.ts`（主进程接线：单实例锁 + 聚焦已有窗口、`app://` 协议、菜单、IPC、`will-quit` 回收后端）、`src/preload.ts`（contextBridge **白名单**）、`src/shell/`（与 Electron 解耦的壳逻辑：`appProtocol` app:// 解析 + 目录穿越防护 + CSP/安全头、`channels` IPC 通道与**结果信封**（避免 Electron 压掉 Error 的 `code`）、`preloadBridge`、`menu`、`windowOptions` 安全基线、`backendCommand` 打包/开发期定位、`diagnostics` 脱敏）、`package.json` 的 electron-builder 配置 | `tsc --noEmit` 对**真实 Electron 类型**干净（校验 app/BrowserWindow/protocol/Menu/ipcMain 全部用法）；桌面测试 **13 文件 184 用例**（app:// 穿越 5 变体、CSP 无网络、IPC 信封跨进程、菜单/窗口安全基线、诊断脱敏、**调试桥路由/静态托管**）；集成测试新增**渲染进程可见链路**（`window.omo.rpc` → 信封 → 真实 Go → 真实引擎，含跨进程 404）；**壳已实跑通过**（2026-10，见 §6.35） |
+| **M6-b T7** | ✅ | **Electron 壳**：`src/main.ts`（主进程接线：单实例锁 + 聚焦已有窗口、`app://` 协议、菜单、IPC、`will-quit` 回收后端）、`src/preload.ts`（contextBridge **白名单**）、`src/shell/`（与 Electron 解耦的壳逻辑：`appProtocol` app:// 解析 + 目录穿越防护 + CSP/安全头、`channels` IPC 通道与**结果信封**（避免 Electron 压掉 Error 的 `code`）、`preloadBridge`、`menu`、`windowOptions` 安全基线、`backendCommand` 打包/开发期定位、`diagnostics` 脱敏）、`package.json` 的 electron-builder 配置 | `tsc --noEmit` 对**真实 Electron 类型**干净（校验 app/BrowserWindow/protocol/Menu/ipcMain 全部用法）；桌面测试 **13 文件 192 用例**（app:// 穿越 5 变体、CSP 无网络、IPC 信封跨进程、菜单/窗口安全基线、诊断脱敏、**调试桥路由/静态托管**）；集成测试新增**渲染进程可见链路**（`window.omo.rpc` → 信封 → 真实 Go → 真实引擎，含跨进程 404）；**壳已实跑通过**（2026-10，见 §6.35） |
 
 | **M6-c T8** | ✅ | **轻量包**：`scripts/setup-engine.ps1`（uv → pip 两条安装路径 + 发 ping 验证；**任何失败都落进统一的"可操作指引"块**）、`scripts/build-lite.ps1`（渲染产物 + Go 后端 + 引擎源码 + setup 脚本 + README → **体积门禁** → zip；`-AllowMissingShell` 无壳时只暂存并**退出 2**）、`desktop/lite/README.txt` 模板、`scripts/README.md`；CI 加 `packaging` job | 两脚本**实跑**：setup-engine 四条路径（指定解释器 / uv 分支 / 目录非法 / 解释器不存在）全过；build-lite 暂存（退出 2）/完整出包（退出 0，13.9MB）/门禁拦截（退出 1）；集成测试新增**引擎不可用**用例（真实 Go + 不存在解释器 → 任务 `failed`，错误点名失败的命令）。**体积门禁已决**：轻量包保留 Electron → 整包上限由 50MB 放宽到 150MB，另加 **app payload ≤50MB** 紧门禁防依赖泄漏（见 §7 T8 块） |
 
 | **M6-c T9** | ✅ | **契约 + 脚本 + CI + 发布**：`scripts/rpc-cli.ps1`（stdio 调试客户端）、`scripts/build-desktop.ps1`（完整包 + PyInstaller onedir sidecar + 三道门禁）、壳 TS 编译管线、**`scripts/start-local.ps1` + `local-bridge.mjs`（HTTP↔stdio 调试桥）**、**`scripts/release-manifest.ps1`（SHA256 清单 + `-Verify`）**、CI `desktop`/`packaging` 补齐、**tag 触发的 `release` job** | 脚本全部**实跑**：rpc-cli 四种情形；build-desktop `-SkipPackaging`（engine dir 165.64MB / payload 27.09MB / 退出 2）且 sidecar 真能算（3/3）；**start-local 全链路**：`/health`、`/api/meta`、建任务 → **Rs=3.970819 / T@550nm=0.974497 / SE@10GHz=33.7036**、SPA 回退、删除任务、退出无残留；**release-manifest**：生成 → 校验通过 → 篡改必失败 → 空/缺目录退出 1。桥核心 **33 单测**。⏳ 未做：electron-builder 实跑与完整包进 Release（属 T11，需 Windows GUI 目标） |
 
-测试现状：Python **132 passed / ruff 0**（2026-09 文件权限修复后不再有 tmp_path 报错，见 §6.22；此前记录的"128 passed + 4 个 PermissionError"已过时）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流、单用户模式与 **12 个 stdio 引擎用例**）；前端 `pnpm lint` 0 告警 + `pnpm test`（**vitest：5 文件 60 用例**）+ `pnpm build`（`vue-tsc -b` + `vite build`）通过；桌面 `desktop/`：`pnpm type-check`（含真实 Electron 类型）+ `pnpm build`（main ESM / preload CJS）+ `pnpm test`（**13 文件 184 用例**，其中 33 个覆盖 `scripts/lib/local-bridge.mjs`，
+测试现状：Python **132 passed / ruff 0**（2026-09 文件权限修复后不再有 tmp_path 报错，见 §6.22；此前记录的"128 passed + 4 个 PermissionError"已过时）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流、单用户模式与 **12 个 stdio 引擎用例**）；前端 `pnpm lint` 0 告警 + `pnpm test`（**vitest：5 文件 60 用例**）+ `pnpm build`（`vue-tsc -b` + `vite build`）通过；桌面 `desktop/`：`pnpm type-check`（含真实 Electron 类型）+ `pnpm build`（main ESM / preload CJS）+ `pnpm test`（**13 文件 192 用例**，其中 33 个覆盖 `scripts/lib/local-bridge.mjs`，
 另有 3 个需环境变量门控的真实端到端集成用例，已实跑通过——包括对着 **PyInstaller 打出的 sidecar** 跑）通过；
 `scripts/` 六个脚本本机实跑过（见 §7 的 T8/T9 块；本机没有 `pwsh`，见 §6.40）。
 
@@ -318,7 +318,7 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
     验证方式也值得记住：`Invoke-WebRequest` 会**在客户端先规范化** `..`（`/a/../design` 变成
     `/design` 才发出去），所以用它测穿越会得到误导性的 `200`；要测**原始请求**必须用
     `TcpClient` 手写请求行。用原始套接字复核：5 种穿越写法全部 `404`、`html=False`。
-37. **⚠️ 引擎 stderr 在 Windows 上是 ANSI 编码，会与 Go 日志混成乱码（2026-10 实测）**：
+37. **⚠️ 引擎 stderr 的乱码有两个独立原因，只修一个不够（2026-10，第二次才修全）**：
     把 Go 的 stderr（UTF-8，正常）与引擎的 stderr 一起收进同一个日志文件时，**引擎那几行是乱码**：
 
     ```
@@ -326,13 +326,39 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
     omo rpc: stdio JSON-RPC ������omo 0.1.0����־�� stderr��                          <- 引擎，乱码
     ```
 
-    原因：Python 在 Windows 上默认用 **ANSI 代码页**（本机 GBK）编码 stderr，而 Go 写的是 UTF-8 字节。
-    引擎是 Go 的**孙进程**，所以只能在**上游**把编码定死：
-    → 拉起的进程环境里加 `PYTHONUTF8=1` + `PYTHONIOENCODING=utf-8`。
-    已落在两处：`scripts/local-bridge.mjs`（调试桥）与 `desktop/src/host/host.ts` 的
-    `buildBackendEnv`（壳的 Host 层，那里也会把后端 stderr 写进 `logs/backend.log` 与诊断包）。
+    **原因 A：编码没定死。** Python 在 Windows 上默认用 **ANSI 代码页**（本机 GBK）编码 stderr，
+    而 Go 写的是 UTF-8 字节。引擎是 Go 的**孙进程**，只能从上游定死：
+    → 加 `PYTHONUTF8=1` + `PYTHONIOENCODING=utf-8`。
+    **权威位置是 `server/internal/task/engine_stdio.go` 拉起引擎的那一步**（`engineEncodingEnv`）：
+    那是唯一能影响引擎的环境边界，桌面壳 / `start-local` / `rpc-cli` / 手工 `--stdio` 四条入口
+    因此行为一致；调用方显式给的变量仍可覆盖（排障用）。桥的 `local-bridge.mjs` 与 Host 的
+    `buildBackendEnv` 也各设一次，属**防御性重复**（它们只是 Go 的父进程，不是引擎的父进程）。
+
+    **原因 B：收日志的一端按 chunk 各自解码。** 这是更隐蔽的一半，第一次修漏了：
+    `desktop/src/host/backend.ts` 的 `handleStderr` 原来对每个 chunk 单独
+    `chunk.toString('utf8')`。管道可以在**任意字节**处分块，包括把一个汉字（3 字节）切开，
+    于是两个残片各变一个 `U+FFFD`；而且逐 chunk 切行会把**一行拆成两条日志**：
+
+    ```
+    INFO [backend] 引擎日志：        <- 汉字被切开
+    INFO [backend] ��绪              <- 且一行变两行
+    ```
+
+    实测：`xx就绪yy\n` 的 12 个切点里有 **4 个**会损坏（正好切在汉字内部）。
+    → 改用 **`node:string_decoder` 的 `StringDecoder`**（跨 chunk 保留不完整字节序列）
+    + **跨 chunk 的行缓冲**，并在子进程退出时 `flushStderr()` 把最后一行（往往是最有用的崩溃行）
+    吐出来。每一代子进程重启时都要重置解码器，否则上一代的半个字符会拼到新进程输出上。
+    回归用例：`desktop/src/host/backend.test.ts` 的"跨 chunk 的 UTF-8 stderr 不被切坏"，
+    用 fixture 的 `FAKE_MODE=stderr-split`（真子进程，两次 `write` 之间隔 100ms，强制分块）。
+
+    顺带排除的两个**假嫌疑**（都已实测）：
+    - `Start-Process -RedirectStandardError` **不破坏 UTF-8**：子进程写的 `e5 b0 b1`（`就`）原样落盘；
+      用 `Get-Content -Encoding UTF8` 读回来是好的。所以 `start-local.ps1` 那条路径没问题。
+    - `LineSplitter`（stdout）本身没问题：它先按字节找换行、**再**对整行 `toString('utf8')`，
+      天然跨 chunk 正确；只有 stderr 那条路径是逐个 chunk 解码的。
+
     排障时的迷惑点：**同一份日志里 Go 行正常、引擎行乱码**，很容易误判成"引擎挂了/协议坏了"；
-    实际上只是编码。修好后两边的中文都能正常读。
+    实际上要么是 A（编码）、要么是 B（解码），两者都会给出这种"半好半坏"的观感。
 38. **⚠️ `Start-Process` 不允许 stdout 与 stderr 指向同一个文件（2026-10 实测）**：
     `-RedirectStandardOutput $f -RedirectStandardError $f` 在 Windows PowerShell 5.1 上直接报
     "无法运行此命令，因为 RedirectStandardOutput 和 RedirectStandardError 相同"，

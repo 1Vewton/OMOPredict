@@ -180,9 +180,8 @@ export function buildBackendEnv(
     OMO_AUTH_MODE: 'none',
     // 桌面版不监听端口（D11）：Go 拉起引擎走 stdio
     OMO_ENGINE_TRANSPORT: opts.engineTransport ?? DEFAULT_ENGINE_TRANSPORT,
-    // 引擎是"孙进程"（Go 拉起它），这里必须顺带定好编码：否则 Windows 上 Python 按 ANSI
-    // 代码页写 stderr，引擎的 UTF-8 日志落进日志文件就是乱码，而紧挨着的 Go 日志却是好的
-    // —— 混在一起排障很误导（详见 docs/HANDOVER.md 6.38）。
+    // 引擎的编码**权威设定在 Go 拉起它的那一步**（server/internal/task/engine_stdio.go 的
+    // engineEncodingEnv）；这里再设一次是防御性重复。详见 docs/HANDOVER.md 6.37。
     PYTHONUTF8: '1',
     PYTHONIOENCODING: 'utf-8',
     ...(opts.engineUrl ? { OMO_ENGINE_URL: opts.engineUrl } : {}),

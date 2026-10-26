@@ -121,10 +121,12 @@ const childEnv = {
   OMO_ENGINE_TRANSPORT: 'stdio',
   OMO_DB_DRIVER: 'sqlite',
   OMO_DB_DSN: join(dataDir, 'start-local.db'),
-  // The engine is a grandchild (Go spawns it), so its encoding cannot be fixed further down.
-  // Without this, Python on Windows encodes stderr with the ANSI code page and its log lines
-  // reach the log file as mojibake while the Go lines right next to them are fine - a confusing
-  // mix to debug (HANDOVER 6.38).
+  // The authoritative setting is where Go actually spawns the engine
+  // (server/internal/task/engine_stdio.go: engineEncodingEnv) - that is the only environment
+  // boundary that reaches the grandchild. Setting it here as well is belt and braces: this
+  // process is Go's parent, and without it Python on Windows encodes stderr with the ANSI code
+  // page, so engine lines land in the log as mojibake while the Go lines next to them are fine
+  // (HANDOVER 6.37).
   PYTHONUTF8: '1',
   PYTHONIOENCODING: 'utf-8',
 }

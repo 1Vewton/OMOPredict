@@ -45,7 +45,7 @@ measured data from high-level papers**, for performance prediction and process-o
 - ✅ T6 **desktop Host layer** (`desktop/`): data directory/log rotation/single-instance lock/engine source discovery/Go child-process guard
   (in-flight requests fail on a crash, rate-limited restart, process-tree reclamation on timeout) + stdio JSON-RPC client
 - ✅ T7 **Electron shell**: main process (`app://` protocol, menu, IPC) + preload allowlist; shell logic decoupled from Electron,
-  184 unit tests (including app:// directory-traversal protection, CSP with no network, IPC envelope, debug bridge); **the shell's startup and rendering have been run for real** (2026-10)
+  192 unit tests (including app:// directory-traversal protection, CSP with no network, IPC envelope, debug bridge); **the shell's startup and rendering have been run for real** (2026-10)
 - ✅ T8 **lightweight package** (`scripts/`): `setup-engine.ps1` (the user installs the engine on their own Python and verifies it with a ping; on failure it gives actionable guidance)
   + `build-lite.ps1` (render artefacts + Go backend + engine source → size gate → zip)
 - ✅ T9 **full package, debugging tools and release**: `build-desktop.ps1` (+ **PyInstaller engine sidecar**, measured to compute correct results with no
@@ -145,7 +145,7 @@ For detailed startup/configuration/interfaces see the document index. The deskto
 - **No rate limiting and no quotas**, and task results are written once (no versioning/recomputation).
 - **Uneven test coverage**: Python/Go have fairly complete unit tests and benchmarking tests; the frontend already has vitest unit tests
   (transport abstraction/endpoint mapping/capability gate/route guard/history-page deletion, 5 files 60 cases), but there are **still no browser end-to-end tests**;
-  the desktop side has **184 unit tests** (33 of them covering the debug bridge) plus 3 environment-gated real end-to-end cases, and
+  the desktop side has **192 unit tests** (33 of them covering the debug bridge) plus 3 environment-gated real end-to-end cases, and
   **the real Electron shell has been smoke-tested** (2026-10), though `electron-builder` packaging and clean-machine acceptance are still not done (T11).
 - **The desktop version has not yet been delivered** (design see `docs/desktop.md`): it is still the three-process web form; the planned desktop package will
   **exclude torch (no NN acceleration)**, have no code signing and no auto-update, be Windows-first, and the lightweight package requires the user to supply Python.

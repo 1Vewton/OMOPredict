@@ -40,6 +40,15 @@ func TestStdioHelperProcess(t *testing.T) {
 	if mode == "exit" {
 		os.Exit(3) // 模拟引擎启动即崩溃
 	}
+	if mode == "dump_env" {
+		// 把实际收到的环境写进指定文件（绝不写 stdout：那是协议流）。
+		// 用于断言"引擎被拉起时带着 UTF-8 编码设定"。
+		if dump := os.Getenv("OMO_TEST_ENV_DUMP"); dump != "" {
+			if err := os.WriteFile(dump, []byte(strings.Join(os.Environ(), "\n")), 0o600); err != nil {
+				os.Exit(5)
+			}
+		}
+	}
 
 	reader := bufio.NewReader(os.Stdin)
 	out := bufio.NewWriter(os.Stdout)
@@ -120,6 +129,61 @@ func newHelperEngine(mode string, timeout time.Duration) *StdioEngine {
 		Source: "test helper",
 		Env:    env,
 	}, timeout)
+}
+
+// TestStdioEngineForcesUTF8ForEngine 断言引擎被拉起时环境里带着 UTF-8 编码设定。
+//
+// 为什么要专门测：引擎的 stderr 并入 Go 的 stderr，而 Python 在 Windows 上默认按 ANSI
+// 代码页写 stderr，于是同一份日志里 Go 行正常、引擎行乱码（HANDOVER 6.37）。
+// 这个编码必须在"拉起引擎"这一步设死，否则桌面壳 / start-local / rpc-cli / 手工 --stdio
+// 四条入口的日志会不一致；用例把"必须存在"钉住，防止有人顺手删掉。
+func TestStdioEngineForcesUTF8ForEngine(t *testing.T) {
+	dump := dumpEngineEnv(t, nil)
+	for _, want := range []string{"PYTHONUTF8=1", "PYTHONIOENCODING=utf-8"} {
+		if !strings.Contains(dump, want) {
+			t.Errorf("engine environment is missing %q; dump=%s", want, dump)
+		}
+	}
+}
+
+// TestEngineEncodingEnvIsOverridable 断言调用方显式给的编码变量优先级最高（排障时可覆盖）。
+func TestEngineEncodingEnvIsOverridable(t *testing.T) {
+	dump := dumpEngineEnv(t, []string{"PYTHONUTF8=custom-value"})
+	if !strings.Contains(dump, "PYTHONUTF8=custom-value") {
+		t.Errorf("caller-provided PYTHONUTF8 was not honoured; dump=%s", dump)
+	}
+	if strings.Contains(dump, "\nPYTHONUTF8=1\n") || strings.HasSuffix(strings.TrimSpace(dump), "PYTHONUTF8=1") {
+		t.Errorf("default PYTHONUTF8=1 should have been overridden; dump=%s", dump)
+	}
+}
+
+// dumpEngineEnv 拉起假引擎，返回它实际收到的环境变量（写进临时文件，避免污染协议流）。
+func dumpEngineEnv(t *testing.T, extra []string) string {
+	t.Helper()
+	dumpPath := filepath.Join(t.TempDir(), "engine-env.txt")
+	env := append([]string{
+		helperEnv + "=1",
+		helperModeEnv + "=dump_env",
+		"OMO_TEST_ENV_DUMP=" + dumpPath,
+	}, extra...)
+	eng := NewStdioEngine(EngineCommand{
+		Argv:   []string{os.Args[0], "-test.run=TestStdioHelperProcess"},
+		Source: "test helper",
+		Env:    env,
+	}, 5*time.Second)
+	t.Cleanup(func() { _ = eng.Close() })
+
+	if _, err := eng.invoke(context.Background(), "ping", json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("ping: %v", err)
+	}
+	if err := eng.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	raw, err := os.ReadFile(dumpPath)
+	if err != nil {
+		t.Fatalf("read env dump: %v", err)
+	}
+	return string(raw)
 }
 
 // helperStack 与 REST 契约示例一致的 ITO/Ag/ITO 结构。

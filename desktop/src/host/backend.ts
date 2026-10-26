@@ -7,6 +7,7 @@
 // Go 侧为此专门把 GORM 日志改到 stderr（docs/HANDOVER §6.15）；这里对非法行只记日志、
 // 不中断服务，把"被污染"的后果降到最小。
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { StringDecoder } from 'node:string_decoder'
 import { LineSplitter, DEFAULT_MAX_LINE_BYTES } from './lines'
 import { RpcCallError, RpcClient } from './rpc'
 import type { Logger } from './logger'
@@ -96,6 +97,17 @@ export class Backend {
 
   private child: ChildProcessWithoutNullStreams | null = null
   private splitter = new LineSplitter()
+  /**
+   * stderr 的增量解码器与行缓冲。
+   *
+   * 必须**跨 chunk** 解码：管道可以在任意字节处分块，包括把一个汉字（3 字节）切开。
+   * 若对每个 chunk 单独 `toString('utf8')`，两个残片都会变成 U+FFFD，日志里就是乱码
+   * ——引擎日志是 UTF-8 中文，这与"编码没设好"是两件事（见 HANDOVER 6.37）。
+   *
+   * 同理**行也要跨 chunk 拼**：一个 chunk 未必以换行结尾，逐 chunk 切行会把一行拆成两条日志。
+   */
+  private stderrDecoder = new StringDecoder('utf8')
+  private stderrBuffer = ''
   private state: BackendStatus = 'stopped'
   private stopping = false
   /** 是否曾经就绪过：决定"退出后是否自动重启"（启动阶段就失败不重启，见 handleExit） */
@@ -231,6 +243,9 @@ export class Backend {
     this.child = child
     this.lastStartAt = Date.now()
     this.splitter = new LineSplitter()
+    // 每一代子进程都要重置解码器与行缓冲：上一代残留的半个字符不该拼到新进程的输出上
+    this.stderrDecoder = new StringDecoder('utf8')
+    this.stderrBuffer = ''
 
     child.stdout.on('data', (chunk: Buffer) => {
       for (const line of this.splitter.push(chunk)) this.handleStdoutLine(line)
@@ -271,13 +286,49 @@ export class Backend {
     this.rpc.acceptLine(trimmed)
   }
 
+  /**
+   * 收后端 stderr：**跨 chunk** 解码 UTF-8、**跨 chunk** 拼行，再逐行落盘。
+   *
+   * 两个"跨 chunk"都是必需的，且是两个独立的坑（HANDOVER 6.37）：
+   *   - 逐 chunk `toString('utf8')`：汉字被切成两半时两边都变 U+FFFD → 乱码；
+   *   - 逐 chunk 切行：chunk 不必以换行结尾，一行会被拆成两条日志（且顺序/内容都错）。
+   * `StringDecoder` 会把不完整的字节序列留到下一次 `write`，正好解决第一个。
+   */
   private handleStderr(chunk: Buffer): void {
-    const text = chunk.toString('utf8')
-    // 后端日志按行落盘：保留原始换行信息，便于排障
-    for (const line of text.split(/\r?\n/)) {
-      if (line.length === 0) continue
-      this.pushStderr(line)
-      this.opts.logger?.info(`[backend] ${line}`)
+    this.stderrBuffer += this.stderrDecoder.write(chunk)
+    let newline = this.stderrBuffer.search(/\r?\n/)
+    while (newline >= 0) {
+      const line = this.stderrBuffer.slice(0, newline)
+      // 吃掉换行本身（\n 或 \r\n）
+      this.stderrBuffer = this.stderrBuffer.slice(
+        newline + (this.stderrBuffer[newline] === '\r' ? 2 : 1),
+      )
+      if (line.length > 0) {
+        this.pushStderr(line)
+        this.opts.logger?.info(`[backend] ${line}`)
+      }
+      newline = this.stderrBuffer.search(/\r?\n/)
+    }
+    // 防御：一直没有换行的畸形输出不能把内存吃满（与 LineSplitter 的取舍一致）
+    if (this.stderrBuffer.length > DEFAULT_MAX_LINE_BYTES) {
+      this.stderrBuffer = ''
+      this.pushStderr('[stderr] 单行超长，已丢弃')
+    }
+  }
+
+  /**
+   * 把解码器与行缓冲里的残余吐成最后一行（子进程退出时调用）。
+   *
+   * `StringDecoder.end()` 会返回残留的不完整字节序列（按 U+FFFD 呈现，这是数据本身破损，
+   * 不是解码 bug）；行缓冲里没有换行结尾的最后一行也在这里落盘。
+   */
+  private flushStderr(): void {
+    this.stderrBuffer += this.stderrDecoder.end()
+    const leftover = this.stderrBuffer.replace(/\r$/, '')
+    this.stderrBuffer = ''
+    if (leftover.length > 0) {
+      this.pushStderr(leftover)
+      this.opts.logger?.info(`[backend] ${leftover}`)
     }
   }
 
@@ -293,6 +344,9 @@ export class Backend {
   ): void {
     if (this.child !== child) return // 已被更新的一代取代
     this.child = null
+    // 子进程退出意味着 stderr 不会再来了：把解码器与行缓冲里的残余吐出去，
+    // 否则"最后一行没有换行"的崩溃信息（最有用的一条）会被丢掉。
+    this.flushStderr()
     const expected = this.stopping
     this.emit({ type: 'exit', code, signal, expected })
     this.opts.logger?.info(`后端退出: code=${code} signal=${signal} expected=${expected}`)

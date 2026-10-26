@@ -188,9 +188,11 @@ describe('buildBackendEnv（D6：桌面版注入的环境变量）', () => {
     expect(env.OMO_LOG_DIR).toBeUndefined()
   })
 
-  it('顺带定好 Python 的 stdio 编码（引擎是孙进程，只能从这里传下去）', () => {
+  it('顺带定好 Python 的 stdio 编码（防御性重复；权威设定在 Go 拉起引擎处）', () => {
     // 没有这两个变量时，Windows 上引擎按 ANSI 代码页写 stderr：它的 UTF-8 日志落进
-    // logs/backend.log 就是乱码，而紧挨着的 Go 日志正常 —— 见 HANDOVER 6.38。
+    // logs/backend.log 就是乱码，而紧挨着的 Go 日志正常 —— 见 HANDOVER 6.37。
+    // 真正管用的是 server/internal/task/engine_stdio.go（那里才直接拉起引擎）；这里再设一次，
+    // 是为了在 Go 那段被改动/绕过时仍能兜住。
     const env = buildBackendEnv({}, paths, noEngine)
     expect(env.PYTHONUTF8).toBe('1')
     expect(env.PYTHONIOENCODING).toBe('utf-8')

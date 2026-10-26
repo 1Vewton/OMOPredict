@@ -11,6 +11,9 @@
 //   FAKE_MODE=die-once        首次启动即退出，第二次启动起正常工作（测自动重启）
 //   FAKE_MODE=pollute         先往 stdout 打一行非 JSON（测协议污染容忍）
 //   FAKE_MODE=slow            每个请求延迟 FAKE_DELAY_MS 再回复（测调用超时）
+//   FAKE_MODE=stderr-split    把一行中文日志从一个多字节字符中间切成两次 write，
+//                             两次 write 之间有停顿，确保父进程收到两个 chunk
+//                             （测"跨 chunk 解码"——按 chunk 各自 toString 会出 U+FFFD 乱码）
 //   FAKE_STATE_FILE=<path>    die-once 用它记录"已启动过几次"
 import { readFileSync, writeFileSync } from 'node:fs'
 
@@ -37,6 +40,21 @@ function bumpState() {
 
 const starts = bumpState()
 process.stderr.write(`[fake-backend] started (mode=${mode} starts=${starts})\n`)
+
+// The engine really does log UTF-8 Chinese, and a pipe can hand the bytes over split anywhere -
+// including the middle of a multi-byte character. Emit exactly that shape on purpose.
+if (mode === 'stderr-split') {
+  const message = '引擎日志：就绪\n'
+  const bytes = Buffer.from(message, 'utf8')
+  // 定位到第一个多字节字符的中间（"：" 之后的 "就" 的首字节）
+  const target = message.indexOf('就')
+  const cut = Buffer.byteLength(message.slice(0, target), 'utf8') + 1
+  process.stderr.write(bytes.subarray(0, cut))
+  // 让第一次 write 单独成块：短暂等待后写余下部分（期间父进程已收到第一个 chunk）
+  setTimeout(() => {
+    process.stderr.write(bytes.subarray(cut))
+  }, 100)
+}
 
 if (mode === 'die-once' && starts === 1) {
   process.stderr.write('[fake-backend] simulated crash on first start\n')
