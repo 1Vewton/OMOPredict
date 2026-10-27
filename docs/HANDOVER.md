@@ -34,13 +34,13 @@ OMO（氧化物/金属/氧化物）纳米多层薄膜仿真设计软件：三层
 
 | **M6-b T6** | ✅ | **桌面 Host 层**（`desktop/src/host/`，**Electron 无关的纯 Node 模块**）：`paths`（D6 数据/日志目录，按目标平台选路径语义）、`logger`（D7 按天日志+保留 7 天，目录不可用则退化为仅回显）、`lines`（JSON-Lines 分帧）、`rpc`（id↔Promise、超时、错误码=HTTP 语义、非法行只报协议错误）、`backend`（spawn/ping/日志捕获/**退出即失效在途请求**/限速重启/超时强杀进程树/stdout 污染容忍）、`engine`（只做 Go 看不到的来源探测 + D9 第 5 级指引）、`singleton`（文件锁）、`host`（组装并注入 D6 环境变量，默认 `OMO_ENGINE_TRANSPORT=stdio`） | `tsc --noEmit` 干净；**91 单测 + 1 集成测试**（真子进程走真管道：分帧/乱序关联/超时/崩溃即在途失败/重启限速/启动失败不重启/锁回收/日志轮转）；**真实端到端**：Host → Go `--stdio` → 真实引擎 → Rs≈3.9708 / T@550nm≈0.9745 / SE@10GHz≈33.70 + **后端无监听端口** + 退出无残留 |
 
-| **M6-b T7** | ✅ | **Electron 壳**：`src/main.ts`（主进程接线：单实例锁 + 聚焦已有窗口、`app://` 协议、菜单、IPC、`will-quit` 回收后端）、`src/preload.ts`（contextBridge **白名单**）、`src/shell/`（与 Electron 解耦的壳逻辑：`appProtocol` app:// 解析 + 目录穿越防护 + CSP/安全头、`channels` IPC 通道与**结果信封**（避免 Electron 压掉 Error 的 `code`）、`preloadBridge`、`menu`、`windowOptions` 安全基线、`backendCommand` 打包/开发期定位、`diagnostics` 脱敏）、`package.json` 的 electron-builder 配置 | `tsc --noEmit` 对**真实 Electron 类型**干净（校验 app/BrowserWindow/protocol/Menu/ipcMain 全部用法）；桌面测试 **13 文件 192 用例**（app:// 穿越 5 变体、CSP 无网络、IPC 信封跨进程、菜单/窗口安全基线、诊断脱敏、**调试桥路由/静态托管**）；集成测试新增**渲染进程可见链路**（`window.omo.rpc` → 信封 → 真实 Go → 真实引擎，含跨进程 404）；**壳已实跑通过**（2026-10，见 §6.35） |
+| **M6-b T7** | ✅ | **Electron 壳**：`src/main.ts`（主进程接线：单实例锁 + 聚焦已有窗口、`app://` 协议、菜单、IPC、`will-quit` 回收后端）、`src/preload.ts`（contextBridge **白名单**）、`src/shell/`（与 Electron 解耦的壳逻辑：`appProtocol` app:// 解析 + 目录穿越防护 + CSP/安全头、`channels` IPC 通道与**结果信封**（避免 Electron 压掉 Error 的 `code`）、`preloadBridge`、`menu`、`windowOptions` 安全基线、`backendCommand` 打包/开发期定位、`diagnostics` 脱敏）、`package.json` 的 electron-builder 配置 | `tsc --noEmit` 对**真实 Electron 类型**干净（校验 app/BrowserWindow/protocol/Menu/ipcMain 全部用法）；桌面测试 **13 文件 193 用例**（app:// 穿越 5 变体、CSP 无网络、IPC 信封跨进程、菜单/窗口安全基线、诊断脱敏、**调试桥路由/静态托管**）；集成测试新增**渲染进程可见链路**（`window.omo.rpc` → 信封 → 真实 Go → 真实引擎，含跨进程 404）；**壳已实跑通过**（2026-10，见 §6.35） |
 
 | **M6-c T8** | ✅ | **轻量包**：`scripts/setup-engine.ps1`（uv → pip 两条安装路径 + 发 ping 验证；**任何失败都落进统一的"可操作指引"块**）、`scripts/build-lite.ps1`（渲染产物 + Go 后端 + 引擎源码 + setup 脚本 + README → **体积门禁** → zip；`-AllowMissingShell` 无壳时只暂存并**退出 2**）、`desktop/lite/README.txt` 模板、`scripts/README.md`；CI 加 `packaging` job | 两脚本**实跑**：setup-engine 四条路径（指定解释器 / uv 分支 / 目录非法 / 解释器不存在）全过；build-lite 暂存（退出 2）/完整出包（退出 0，13.9MB）/门禁拦截（退出 1）；集成测试新增**引擎不可用**用例（真实 Go + 不存在解释器 → 任务 `failed`，错误点名失败的命令）。**体积门禁已决**：轻量包保留 Electron → 整包上限由 50MB 放宽到 150MB，另加 **app payload ≤50MB** 紧门禁防依赖泄漏（见 §7 T8 块） |
 
 | **M6-c T9** | ✅ | **契约 + 脚本 + CI + 发布**：`scripts/rpc-cli.ps1`（stdio 调试客户端）、`scripts/build-desktop.ps1`（完整包 + PyInstaller onedir sidecar + 三道门禁）、壳 TS 编译管线、**`scripts/start-local.ps1` + `local-bridge.mjs`（HTTP↔stdio 调试桥）**、**`scripts/release-manifest.ps1`（SHA256 清单 + `-Verify`）**、CI `desktop`/`packaging` 补齐、**tag 触发的 `release` job** | 脚本全部**实跑**：rpc-cli 四种情形；build-desktop `-SkipPackaging`（engine dir 165.64MB / payload 27.09MB / 退出 2）且 sidecar 真能算（3/3）；**start-local 全链路**：`/health`、`/api/meta`、建任务 → **Rs=3.970819 / T@550nm=0.974497 / SE@10GHz=33.7036**、SPA 回退、删除任务、退出无残留；**release-manifest**：生成 → 校验通过 → 篡改必失败 → 空/缺目录退出 1。桥核心 **33 单测**。⏳ 未做：electron-builder 实跑与完整包进 Release（属 T11，需 Windows GUI 目标） |
 
-测试现状：Python **132 passed / ruff 0**（2026-09 文件权限修复后不再有 tmp_path 报错，见 §6.22；此前记录的"128 passed + 4 个 PermissionError"已过时）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流、单用户模式与 **12 个 stdio 引擎用例**）；前端 `pnpm lint` 0 告警 + `pnpm test`（**vitest：5 文件 60 用例**）+ `pnpm build`（`vue-tsc -b` + `vite build`）通过；桌面 `desktop/`：`pnpm type-check`（含真实 Electron 类型）+ `pnpm build`（main ESM / preload CJS）+ `pnpm test`（**13 文件 192 用例**，其中 33 个覆盖 `scripts/lib/local-bridge.mjs`，
+测试现状：Python **132 passed / ruff 0**（2026-09 文件权限修复后不再有 tmp_path 报错，见 §6.22；此前记录的"128 passed + 4 个 PermissionError"已过时）；Go 全量测试通过（api/model/store/user/task，含 optimize 任务流、单用户模式与 **12 个 stdio 引擎用例**）；前端 `pnpm lint` 0 告警 + `pnpm test`（**vitest：5 文件 60 用例**）+ `pnpm build`（`vue-tsc -b` + `vite build`）通过；桌面 `desktop/`：`pnpm type-check`（含真实 Electron 类型）+ `pnpm build`（main ESM / preload CJS）+ `pnpm test`（**13 文件 193 用例**，其中 33 个覆盖 `scripts/local-bridge-lib.mjs`，
 另有 3 个需环境变量门控的真实端到端集成用例，已实跑通过——包括对着 **PyInstaller 打出的 sidecar** 跑）通过；
 `scripts/` 六个脚本本机实跑过（见 §7 的 T8/T9 块；本机没有 `pwsh`，见 §6.40）。
 
@@ -359,6 +359,13 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
 
     排障时的迷惑点：**同一份日志里 Go 行正常、引擎行乱码**，很容易误判成"引擎挂了/协议坏了"；
     实际上要么是 A（编码）、要么是 B（解码），两者都会给出这种"半好半坏"的观感。
+    - ⚠️ **同一个"逐 chunk 解码"错误在调试桥里也有过（2026-10 复查时又抓到）**：
+      `scripts/local-bridge-lib.mjs` 的 `acceptChunk` 当时先 `chunk.toString('utf8')` 再拼字符串。
+      后果比 stderr 更坏：**JSON 仍能解析成功**，所以既不会报 protocol 错误、也不会失败，
+      只是把中文静默替换成 U+FFFD（`最优候选` → `���优候选`）——任务名与 optimize 报告都会中招。
+      穷举 85 个切点全部损坏。修法同 B：**缓冲原始字节，只对完整行解码**。
+      回归用例在 `desktop/src/shell/localBridge.test.ts`（"多字节字符被切开时不能损坏内容"）。
+      **教训**：一处踩过的坑要在同类代码里搜一遍——桥和 Host 是两份独立实现，第一轮只修了 Host。
 38. **⚠️ `Start-Process` 不允许 stdout 与 stderr 指向同一个文件（2026-10 实测）**：
     `-RedirectStandardOutput $f -RedirectStandardError $f` 在 Windows PowerShell 5.1 上直接报
     "无法运行此命令，因为 RedirectStandardOutput 和 RedirectStandardError 相同"，
@@ -506,7 +513,7 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
   产物中 `torch`/`fastapi`/`uvicorn`/`matplotlib` **均 0 条目**、sidecar 又能算对结果，
   说明这是 numpy/scipy 的固有开销而不是依赖泄漏。
 - ✅ **T9 尾项已完成（2026-10）**：
-  - `scripts/start-local.ps1` + `scripts/local-bridge.mjs`（+ `scripts/lib/local-bridge.mjs` 核心、`lib/local-bridge.d.mts` 类型）：
+  - `scripts/start-local.ps1` + `scripts/local-bridge.mjs`（+ `scripts/local-bridge-lib.mjs` 核心、`scripts/local-bridge-lib.d.mts` 类型）：
     **HTTP ↔ stdio 调试桥**，让"全程不监听端口"的进程树能在普通浏览器里跑起来。
     `浏览器 --HTTP--> 桥 --stdio JSON-RPC--> Go --stdio JSON-RPC--> 引擎`；
     整棵树只有桥监听一个回环端口。桥是**调试工具**：只跟自己拉起的子进程说话、默认绑 `127.0.0.1`、
@@ -515,7 +522,7 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
     实测：`Rs = 3.970819`、`T@550nm = 0.974497`、`SE@10GHz = 33.7036`（与契约一致）、
     SPA 深链回退、`/api/auth/me` 本地回答、删除任务、Ctrl+C 后端口释放无残留。
     期间修的真实问题：POSIX 上反斜杠路径会**静默退化成 SPA 回退**（掩盖穿越尝试）→ 显式拒绝；
-    引擎 stderr 编码（见 §6.38）；`Start-Process` 同文件重定向限制（见 §6.39）。
+    引擎 stderr 编码（见 §6.37）；`Start-Process` 同文件重定向限制（见 §6.39）。
   - `scripts/release-manifest.ps1`：产物 → `SHA256SUMS.txt`（`sha256sum` 兼容、UTF-8 无 BOM、仅 LF）
     + `omopredict-<version>.json`（version/commit/每产物 hash+size）；`-Verify` 逐条反查。
     只收 `-InputDir` 的**直接子文件**（排除 `*.json`），`-Include` 可显式补充。

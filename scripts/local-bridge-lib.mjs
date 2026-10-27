@@ -233,7 +233,8 @@ export class JsonLinesClient {
     this.pending = new Map()
     this.nextId = 1
     this.closed = false
-    this.buffer = ''
+    /** 未成行的原始字节（**保持字节**，直到整行才解码，见 acceptChunk 的注释）。 */
+    this.buffer = Buffer.alloc(0)
   }
 
   get pendingCount() {
@@ -279,20 +280,30 @@ export class JsonLinesClient {
   /**
    * Feed a chunk of stdout; must tolerate partial lines and CRLF.
    *
+   * Byte-oriented on purpose: a pipe may split a multi-byte character across chunks, so the
+   * buffer must stay raw bytes and only a COMPLETE line gets decoded. Decoding each chunk with
+   * `toString('utf8')` first silently replaces split characters with U+FFFD - and because the
+   * result still parses as JSON, that corruption is not even reported as a protocol error
+   * (a Chinese task name or an optimize report comes out mangled). Same lesson as
+   * desktop/src/host/backend.ts's stderr path (HANDOVER 6.37).
+   *
    * @param {Buffer | string} chunk
    */
   acceptChunk(chunk) {
-    this.buffer += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : chunk
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'utf8')
+    this.buffer = this.buffer.length === 0 ? buf : Buffer.concat([this.buffer, buf])
+    let start = 0
     for (;;) {
-      const newline = this.buffer.indexOf('\n')
+      const newline = this.buffer.indexOf(0x0a, start)
       if (newline < 0) break
-      const line = this.buffer.slice(0, newline).trim()
-      this.buffer = this.buffer.slice(newline + 1)
+      const line = this.buffer.subarray(start, newline).toString('utf8').trim()
+      start = newline + 1
       if (line.length > 0) this.acceptLine(line)
     }
+    this.buffer = start === 0 ? this.buffer : this.buffer.subarray(start)
     // A never-terminated line would grow without bound: drop it and say so.
     if (this.buffer.length > MAX_LINE_BYTES) {
-      this.buffer = ''
+      this.buffer = Buffer.alloc(0)
       this.onProtocolError('响应行超过上限且未结束，已丢弃')
     }
   }

@@ -9,7 +9,7 @@
 | Task | Status | Description |
 |---|---|---|
 | **T6 Host layer** | ✅ Complete | `src/host/`: directories/logging/single instance/engine source/Go child-process supervision + stdio JSON-RPC client |
-| **T7 Electron shell** | ✅ Complete (**has been launched**, see below) | `src/main.ts` + `src/preload.ts` + `src/shell/`; `tsc --noEmit` is clean against real Electron types, **192 unit tests** |
+| **T7 Electron shell** | ✅ Complete (**has been launched**, see below) | `src/main.ts` + `src/preload.ts` + `src/shell/`; `tsc --noEmit` is clean against real Electron types, **193 unit tests** |
 | T8 lightweight package / T9 packaging, debug bridge, release | ✅ Complete | Scripts live in `../scripts/`: `setup-engine.ps1`, `build-lite.ps1`, `build-desktop.ps1`, `rpc-cli.ps1`, `start-local.ps1` (+ debug bridge), `release-manifest.ps1` |
 | T10 documentation / T11 clean-machine acceptance | ⏳ To do | What remains is a real `electron-builder` run and acceptance on a second, clean machine |
 

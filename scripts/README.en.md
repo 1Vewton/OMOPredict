@@ -92,7 +92,7 @@ SPA deep links and task deletion all behave; after Ctrl+C the port is free and n
 > ⚠️ The bridge sets `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` in **its own** environment before
 > spawning Go: the engine is a grandchild, so this is the only place the encoding can be set. Without it
 > Python on Windows writes stderr using the ANSI code page, so the engine's UTF-8 log lines land in the
-> log file as mojibake while the Go lines right next to them look fine (HANDOVER §6.38).
+> log file as mojibake while the Go lines right next to them look fine (HANDOVER §6.37).
 
 ## `release-manifest.ps1` (release manifest)
 

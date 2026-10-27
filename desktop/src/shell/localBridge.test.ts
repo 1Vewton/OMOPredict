@@ -273,6 +273,25 @@ describe('JsonLinesClient', () => {
     expect(client.pendingCount).toBe(0)
   })
 
+  it('多字节字符被切开时不能损坏内容（穷举所有切点）', async () => {
+    // stdout 是 JSON-Lines，一个响应行里可能有中文（任务名、optimize 报告）。
+    // 若先对每个 chunk toString('utf8') 再拼接，切在汉字内部的字节会变成 U+FFFD；
+    // 而 JSON 仍能解析成功 —— 所以这是**静默的数据损坏**，连 protocol 错误都不会报
+    // （与 HANDOVER 6.37 的 stderr 是同一类错误，但后果更隐蔽）。
+    const payload = { jsonrpc: '2.0', id: 1, result: { name: '最优候选', note: '日志见 stderr' } }
+    const bytes = Buffer.from(`${JSON.stringify(payload)}\n`, 'utf8')
+    let corrupted = 0
+    for (let cut = 0; cut <= bytes.length; cut += 1) {
+      const { client, errors } = makeClient()
+      const result = client.request('tasks.get', {})
+      client.acceptChunk(bytes.subarray(0, cut) as Buffer)
+      client.acceptChunk(bytes.subarray(cut) as Buffer)
+      const value = (await result) as { name: string }
+      if (value.name !== '最优候选' || errors.length > 0) corrupted += 1
+    }
+    expect(corrupted).toBe(0)
+  })
+
   it('failAll 让在途请求立刻失败（后端退出时不干等超时）', async () => {
     const { client } = makeClient()
     const promise = client.request('optimize', {})

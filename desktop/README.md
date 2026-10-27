@@ -9,7 +9,7 @@
 | 任务 | 状态 | 说明 |
 |---|---|---|
 | **T6 Host 层** | ✅ 完成 | `src/host/`：目录/日志/单实例/引擎来源/Go 子进程守护 + stdio JSON-RPC 客户端 |
-| **T7 Electron 壳** | ✅ 完成（**已跑过启动**，见下） | `src/main.ts` + `src/preload.ts` + `src/shell/`；`tsc --noEmit` 对真实 Electron 类型干净，**192 单测** |
+| **T7 Electron 壳** | ✅ 完成（**已跑过启动**，见下） | `src/main.ts` + `src/preload.ts` + `src/shell/`；`tsc --noEmit` 对真实 Electron 类型干净，**193 单测** |
 | T8 轻量包 / T9 打包·调试桥·发布 | ✅ 完成 | 脚本在 `../scripts/`：`setup-engine.ps1`、`build-lite.ps1`、`build-desktop.ps1`、`rpc-cli.ps1`、`start-local.ps1`（+ 调试桥）、`release-manifest.ps1` |
 | T10 文档 / T11 净机验收 | ⏳ 待做 | 剩下的是 `electron-builder` 实跑与"装到另一台干净机器"的验收 |
 

@@ -86,7 +86,7 @@ Ctrl+C 后端口释放、无残留子进程。
 
 > ⚠️ 桥会在**自己的环境里**设 `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` 再拉起 Go：引擎是孙进程，
 > 只能从这里把编码传下去。否则 Windows 上 Python 按 ANSI 代码页写 stderr，引擎的 UTF-8 日志落进
-> 日志文件就是乱码，而紧挨着的 Go 日志却正常（HANDOVER §6.38）。
+> 日志文件就是乱码，而紧挨着的 Go 日志却正常（HANDOVER §6.37）。
 
 ## `release-manifest.ps1`（发布清单）
 

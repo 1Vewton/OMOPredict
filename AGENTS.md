@@ -223,7 +223,7 @@ OMOPredict/
 > 测试现状：Python **132 passed** / ruff 0；Go 全量测试通过（含 12 个 stdio 引擎用例）；
 > 前端 `pnpm lint` 0 告警 + `pnpm test`（5 文件 60 用例）+ `pnpm build` 通过；
 > 桌面 `pnpm type-check`（对真实 Electron 类型）+ `pnpm build`（main ESM / preload CJS）
-> + `pnpm test`（**13 文件 192 用例**，另有 3 个需环境变量门控的真实端到端集成用例，已实跑通过）；
+> + `pnpm test`（**13 文件 193 用例**，另有 3 个需环境变量门控的真实端到端集成用例，已实跑通过）；
 > `scripts/` 六个脚本本机实跑过。API 契约见 `docs/api/`（rest / engine / rpc）。
 >
 > ✅ **"壳真的能启动并渲染"已实测通过**（2026-10）：窗口、`app://` 加载 `frontend/dist`、CSP 未误伤、
