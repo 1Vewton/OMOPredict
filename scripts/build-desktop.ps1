@@ -142,7 +142,16 @@ else {
 }
 $engineExe = Join-Path $engineTree 'omo-rpc.exe'
 if (-not (Test-Path -LiteralPath $engineExe)) {
-    Write-Warning "engine sidecar missing: $engineExe (drop -SkipEngineBundle to build it)"
+    if ($SkipEngineBundle) {
+        # Explicitly skipped: staging-only runs are allowed to omit it.
+        Write-Warning "engine sidecar missing: $engineExe (dropped by -SkipEngineBundle)"
+    }
+    else {
+        # A full package without its engine is not installable: the app would start and then fail
+        # every task with "engine not found". Fail here rather than publish/keep a broken tree.
+        throw "engine sidecar was not produced: $engineExe. PyInstaller reported success but the " +
+              'expected onedir layout is missing, so the packaged app would have no engine.'
+    }
 }
 
 Write-Host '[4/6] shell TypeScript (main = ESM, preload = CJS)'

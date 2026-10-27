@@ -274,15 +274,22 @@ jobs:
           if ($output -notmatch '\-32601') { throw "expected error code -32601:`n$output" }
           exit 0
 
-  # 发布 job（T9）：tag 触发，产出轻量包 + SHA256 清单并挂到 Release 上。
+  # 发布 job（T9）：tag 触发，**在 Windows 上真打完整包**，连同轻量包与 SHA256 清单一起挂到 Release。
   #
-  # 为什么只有轻量包：完整包要跑 electron-builder（需要 Electron 二进制与 Windows 目标环境），
-  # 在 ubuntu runner 上打不出来。所以完整包按 docs/desktop.md 的约定在本机 Windows 上构建，
-  # 再手工上传到同一个 Release —— 本 job 会在 run summary 里明确写出这一步，避免"忘了传"。
+  # 为什么必须是 windows-latest 而不是 ubuntu：
+  #   - `build-lite.ps1` / `build-desktop.ps1` 里的 `go build` 不设 GOOS，产物是**宿主机**的；
+  #     在 ubuntu 上把 Linux ELF 改名成 omopredict-server.exe，塞进名叫 "-win-x64" 的 zip。
+  #   - 壳由 electron-builder 产出，而 electron-builder 的 Windows 目标（nsis/zip）需要 Windows 环境；
+  #     ubuntu 上只能靠 wine，且 `desktop/package.json` 也没有 mac/linux 目标。
+  #   - PyInstaller **不支持交叉编译**：引擎 sidecar 只能在目标平台上打。
+  # 早期版本的 release job 在 ubuntu 上用"桩壳"（一个内容是一行文本的 OMOPredict.exe）打包，
+  # 产物在任何机器上都跑不起来 —— 那等于发布一个假包。现在改为真打。
+  #
+  # 代价：Electron 下载 + PyInstaller(~40s) + electron-builder，单次约 5–8 分钟。
   release:
-    name: Release (tag)
+    name: Release (tag, windows)
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     permissions:
       contents: write   # 创建 Release 并上传资产
     steps:
@@ -303,10 +310,20 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
+      # Python + uv 供 PyInstaller 打引擎 sidecar 用。
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "engine/uv.lock"
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       # 标签版本与包版本必须一致：build-lite.ps1 用 desktop/package.json 的 version 给 zip 命名，
       # 若两者漂移就会发出"标着 vX 却装着 Y"的包。这里提前拦掉。
       - name: Tag must match the packaged version
-        shell: pwsh
         run: |
           $tag = $env:GITHUB_REF_NAME -replace '^v', ''
           $pkg = (Get-Content ./desktop/package.json -Raw -Encoding UTF8 | ConvertFrom-Json).version
@@ -314,63 +331,87 @@ jobs:
           if ($tag -ne $pkg) {
             throw "tag '$env:GITHUB_REF_NAME' implies version '$tag' but desktop/package.json says '$pkg'; bump the version before tagging"
           }
-          exit 0
 
-      # 用打好的壳目录当桩：真实 Electron 产物在 Windows 上生成，这里只验证"包结构 + 体积门禁 + 压缩"。
-      - name: Stand-in shell tree
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path packaging/release-shell/resources | Out-Null
-          Set-Content -LiteralPath packaging/release-shell/OMOPredict.exe -Value 'stand-in for the electron shell' -Encoding ASCII
+      - name: Install frontend deps
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
 
-      # 渲染产物是真的（前端在本 runner 上构建）；只有壳是桩。
-      - name: Build lightweight package
-        shell: pwsh
+      - name: Install desktop deps
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      # electron-builder 会自己下载所需 Electron；但 pnpm install 会跳过 electron 的 postinstall
+      # （desktop/pnpm-workspace.yaml 的 allowBuilds），所以显式补齐，避免后续步骤依赖缺失。
+      - name: Ensure Electron binary
+        working-directory: desktop
+        run: node node_modules/electron/install.js
+
+      # 完整包：渲染 → Go（Windows 原生）→ PyInstaller sidecar → 壳 TS → electron-builder → 三道体积门禁。
+      - name: Build full desktop package
+        shell: powershell
         run: |
-          pwsh -NoProfile -File ./scripts/build-lite.ps1 -ShellDir packaging/release-shell -OutDir dist/release
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1
+          if ($LASTEXITCODE -ne 0) { throw "build-desktop.ps1 failed with exit code $LASTEXITCODE" }
+
+      # 轻量包：用**真实** electron-builder 产物（desktop/release/win-unpacked）当壳。
+      # -OutDir 与 -ShellDir 必须分开给：-OutDir 一换位置，-ShellDir 若仍按默认推导就指向
+      # <OutDir>/win-unpacked（不存在），结果只会打出一个没有壳的 staging。
+      - name: Build lightweight package from the real shell
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-lite.ps1 `
+            -OutDir desktop/release/lite -ShellDir desktop/release/win-unpacked
           if ($LASTEXITCODE -ne 0) { throw "build-lite.ps1 failed with exit code $LASTEXITCODE" }
-          exit 0
 
-      - name: SHA256 manifest
-        shell: pwsh
+      - name: List what we built
+        shell: powershell
         run: |
-          pwsh -NoProfile -File ./scripts/release-manifest.ps1 -InputDir dist/release -OutDir dist/release
+          foreach ($dir in @('desktop/release', 'desktop/release/lite')) {
+            Write-Host "--- $dir ---"
+            Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue |
+              ForEach-Object { "{0,10:N1} MB  {1}" -f ($_.Length / 1MB), $_.Name }
+          }
+
+      # 清单覆盖"完整包（desktop/release 下 electron-builder 的产物）+ 轻量包（另一个目录）"，
+      # 所以轻量 zip 用 -Include 显式带进来。
+      - name: SHA256 manifest
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-manifest.ps1 `
+            -InputDir desktop/release -OutDir dist/release -Include "desktop/release/lite/*.zip"
           if ($LASTEXITCODE -ne 0) { throw "release-manifest.ps1 failed with exit code $LASTEXITCODE" }
-          exit 0
 
       # 清单必须能被同一条命令验回去：发布的校验说明也就是这一条。
       - name: Verify the manifest we are about to publish
-        shell: pwsh
+        shell: powershell
         run: |
-          pwsh -NoProfile -File ./scripts/release-manifest.ps1 -Verify -InputDir dist/release -Checksums dist/release/SHA256SUMS.txt
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-manifest.ps1 `
+            -Verify -Checksums dist/release/SHA256SUMS.txt -InputDir desktop/release -Include "desktop/release/lite/*.zip"
           if ($LASTEXITCODE -ne 0) { throw "the published manifest does not verify against its own artifacts" }
-          exit 0
 
-      - name: Note what still has to be built locally
+      - name: Record what is being published
+        shell: powershell
         run: |
-          {
-            echo '### Release assets'
-            echo ''
-            echo 'Uploaded by this job: the lightweight package zip, `SHA256SUMS.txt` and the JSON manifest.'
-            echo ''
-            echo '**Not** uploaded: the full desktop package. It needs `electron-builder` plus the'
-            echo 'electron-builder Windows target, so it is built locally with'
-            echo '`powershell -File scripts\\build-desktop.ps1` and attached to this same release by hand.'
-            echo 'After attaching it, regenerate the manifest so its hash is covered:'
-            echo ''
-            echo '```'
-            echo 'powershell -File scripts\\release-manifest.ps1 -InputDir desktop\\release -OutDir dist\\release'
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          $summary = '### Release assets' + "`n`n" +
+            'Built on a Windows runner: the full desktop package (engine bundled), the lightweight ' +
+            'package (user supplies Python) and the SHA256 manifest.' + "`n`n" +
+            'Verify a download with:' + "`n`n" +
+            '```' + "`n" +
+            'powershell -File scripts/release-manifest.ps1 -Verify' + "`n" +
+            '```'
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary
 
       - name: Publish release
+        shell: powershell
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "OMOPredict ${GITHUB_REF_NAME}" \
-            --generate-notes \
-            dist/release/SHA256SUMS.txt \
-            dist/release/omopredict-*.json \
-            dist/release/OMOPredict-lite-*.zip
-
+          $assets = @(Get-ChildItem -Path 'desktop/release/*.exe','desktop/release/*.zip','desktop/release/lite/*.zip' -File -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.FullName })
+          $assets += 'dist/release/SHA256SUMS.txt'
+          $assets += @(Get-ChildItem -Path 'dist/release/omopredict-*.json' -File | ForEach-Object { $_.FullName })
+          if ($assets.Count -eq 0) { throw 'no assets to publish' }
+          Write-Host "publishing $($assets.Count) asset(s):"
+          $assets | ForEach-Object { Write-Host "  $_" }
+          gh release create $env:GITHUB_REF_NAME --title "OMOPredict $env:GITHUB_REF_NAME" --generate-notes @assets
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed with exit code $LASTEXITCODE" }

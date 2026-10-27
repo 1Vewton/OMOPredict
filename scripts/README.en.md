@@ -103,9 +103,12 @@ It writes two things (to `-OutDir`, default `dist/release/`):
 | `SHA256SUMS.txt` | `sha256sum`-compatible `<64 hex>  <file name>` (two spaces); **UTF-8 without BOM, LF only**, so Linux/macOS can run `sha256sum -c` directly |
 | `omopredict-<version>.json` | Machine-readable manifest: `product` / `version` / `commit` / `generated` / per-artefact `sha256`, `size` |
 
-- Only **direct child files** of `-InputDir` are collected (`*.json` and `SHA256SUMS.txt` excluded): a
-  `release/` directory usually also holds unpacked trees such as `win-unpacked/`, which must never be
-  hashed. Anything outside it needs an explicit `-Include <path>`.
+- Only **direct child files** of `-InputDir` whose extension is in `-Extensions` (a shippable allowlist:
+  `.zip/.exe/.msi/.dmg/.pkg/.AppImage/.deb/.rpm/.tar.gz`) are hashed. That keeps electron-builder
+  bookkeeping (`builder-debug.yml`, `builder-effective-config.yaml`, `*.blockmap`) out of the manifest, and
+  unlike a deny-list a new kind of junk cannot slip in later.
+- `-Include <path or wildcard>` adds artefacts that live elsewhere (the release job uses it for the
+  lightweight zip, which is built into a different directory). Pass the **same `-Include`** to `-Verify`.
 - The version comes from `desktop/package.json` (falling back to `engine/pyproject.toml`), and `-Version` overrides it.
 - `-Verify` compares entry by entry: a missing file or a hash mismatch fails (exit 1), so **tampering is
   always detected** (measured).
@@ -185,14 +188,25 @@ In `.github/workflows/ci.yml`:
      "What to check" block) without needing pnpm, Go or Electron;
   6. round-trips `release-manifest.ps1`: generate → `-Verify` must pass → tamper with one byte → `-Verify`
      must fail. A gate nobody exercises is not a gate.
-- the `release` job runs **on `v*` tags only** (`if: startsWith(github.ref, 'refs/tags/v')`) and:
+- the `release` job runs **on `v*` tags only** (`if: startsWith(github.ref, 'refs/tags/v')`) and **on
+  `windows-latest`**:
   1. refuses to continue if the tag does not match `desktop/package.json`'s `version`;
-  2. builds the lightweight package for real (the renderer is genuinely built; only the Electron shell
-     directory is a stand-in, because electron-builder needs the Windows target);
-  3. generates the SHA256 manifest and verifies it against its own artefacts before publishing;
-  4. creates the GitHub Release via `gh release create`, attaching the zip, `SHA256SUMS.txt` and the JSON
-     manifest;
-  5. writes a run summary stating that the **full** desktop package (`build-desktop.ps1`, which needs
-     electron-builder) still has to be built on a local Windows machine and attached by hand, and that the
-     manifest should be regenerated afterwards so its hash is covered.
+  2. runs `build-desktop.ps1` to build the **full package** for real (electron-builder's nsis/zip targets
+     need Windows, and PyInstaller cannot cross-compile);
+  3. runs `build-lite.ps1` against the **real shell it just produced** (`desktop/release/win-unpacked`,
+     passed explicitly via `-ShellDir`) to produce the lightweight package;
+  4. generates the SHA256 manifest (the lightweight zip joins it via `-Include`) and **verifies the
+     manifest against its own artefacts before publishing**;
+  5. creates the GitHub Release via `gh release create`, attaching the full package, the lightweight
+     package and the manifest.
+
+> ⚠️ **This job has to run on Windows**: the scripts' `go build` does not set GOOS (the binary ends up in
+> the host's format), and "a stand-in shell plus a Linux binary" packed into a `-win-x64.zip` does not run
+> on any machine (HANDOVER §6.41). macOS/Linux releases are out of scope for now: `desktop/package.json`
+> only configures the `win` target and macOS needs signing and notarisation; doing it properly means one
+> native job per platform, because the engine sidecar cannot be reused across platforms.
+> **Lesson**: a stand-in shell can verify script syntax and size gates, but **not whether the layout is
+> runnable**. That is how the lightweight package once ended up with the whole shell nested under
+> `win-unpacked/` (two `resources/` directories in one zip). `build-lite.ps1` now asserts the layout:
+> `OMOPredict.exe` at the package root plus `resources/{dist,engine,omopredict-server.exe}`.
 

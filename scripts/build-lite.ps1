@@ -57,7 +57,23 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 if ($OutDir -eq '') { $OutDir = Join-Path $repoRoot 'desktop/release' }
-if ($ShellDir -eq '') { $ShellDir = Join-Path $OutDir 'win-unpacked' }
+# Remember whether the caller supplied -ShellDir: if they did not, it is derived from -OutDir,
+# which is a real trap when -OutDir is a subdirectory of the electron-builder output.
+$shellDirExplicit = ($ShellDir -ne '')
+if (-not $shellDirExplicit) { $ShellDir = Join-Path $OutDir 'win-unpacked' }
+
+# Two layout mistakes are easy to make and both fail in confusing ways, so check them up front:
+#   1. Staging placed inside the shell tree: Copy-Item would copy the directory into itself.
+#   2. -OutDir moved elsewhere but -ShellDir derived from it, so the real electron-builder output
+#      is never found and the "package" silently becomes staging-only (a stub with no shell).
+$shellFull = [System.IO.Path]::GetFullPath($ShellDir).TrimEnd('\', '/')
+$stagingFull = [System.IO.Path]::GetFullPath((Join-Path $OutDir 'lite-staging')).TrimEnd('\', '/')
+$sep = [System.IO.Path]::DirectorySeparatorChar
+if ($stagingFull -eq $shellFull -or
+    $stagingFull.StartsWith($shellFull + $sep, [System.StringComparison]::OrdinalIgnoreCase) -or
+    $shellFull.StartsWith($stagingFull + $sep, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "staging '$stagingFull' and shell '$shellFull' overlap; pass a -OutDir outside the shell tree."
+}
 
 $desktopPkg = Get-Content -LiteralPath (Join-Path $repoRoot 'desktop/package.json') -Raw -Encoding UTF8 |
     ConvertFrom-Json
@@ -137,11 +153,24 @@ New-Item -ItemType Directory -Force -Path $staging | Out-Null
 $hasShell = Test-Path -LiteralPath $ShellDir
 if ($hasShell) {
     Write-Host "      copying shell: $ShellDir"
-    Copy-Item -LiteralPath $ShellDir -Destination $staging -Recurse -Force
+    # Copy the shell's CONTENTS, not the directory itself. Copy-Item -Recurse on a directory
+    # creates <staging>/win-unpacked/..., which yields a zip whose entries are nested one level
+    # too deep: the app executable ends up in win-unpacked/ and there are two resources/ dirs,
+    # so the packaged app cannot find its backend or renderer at all.
+    Get-ChildItem -LiteralPath $ShellDir -Force | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $staging -Recurse -Force
+    }
 }
 else {
     if (-not $AllowMissingShell) {
-        throw "shell tree not found: $ShellDir. Build it first (electron-builder), pass -ShellDir <win-unpacked>, " +
+        $hint = if ($shellDirExplicit) {
+            'pass -ShellDir <win-unpacked>'
+        }
+        else {
+            "it was derived from -OutDir ($OutDir); the electron-builder output normally lives at " +
+            'desktop/release/win-unpacked, so pass -ShellDir <that path>'
+        }
+        throw "shell tree not found: $ShellDir. Build it first (electron-builder); $hint; " +
               'or pass -AllowMissingShell to produce staging only.'
     }
     Write-Warning "shell tree not found: $ShellDir -> staging only (package will NOT be runnable)"
@@ -188,6 +217,25 @@ if (Test-Path -LiteralPath $readmeTemplate) {
 }
 else {
     Write-Warning "README template missing: $readmeTemplate"
+}
+
+# Structural assertion: a lightweight package only works when the shell sits at the package ROOT
+# (OMOPredict.exe next to resources/). We have shipped a silently nested tree before, so verify
+# instead of trusting the copy. Only enforced when a shell was staged (see -AllowMissingShell).
+if ($hasShell) {
+    $shellExe = Join-Path $staging 'OMOPredict.exe'
+    if (-not (Test-Path -LiteralPath $shellExe)) {
+        $stray = @(Get-ChildItem -LiteralPath $staging -Recurse -Filter 'OMOPredict.exe' -File -ErrorAction SilentlyContinue)
+        $where = if ($stray.Count -gt 0) { ' (found at: ' + ($stray[0].FullName.Substring($staging.Length)) + ')' } else { '' }
+        throw "staged layout is wrong: OMOPredict.exe is not at the package root$where. " +
+              'The shell contents must be copied into the staging root, not into a subdirectory.'
+    }
+    foreach ($required in @('resources\omopredict-server.exe', 'resources\dist\index.html', 'resources\engine\pyproject.toml')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $staging $required))) {
+            throw "staged layout is wrong: missing $required (the app would not find it at runtime)"
+        }
+    }
+    Write-Host '      layout check: OMOPredict.exe at root + resources/{dist,engine,omopredict-server.exe} present'
 }
 
 Write-Host '[4/5] size gates'

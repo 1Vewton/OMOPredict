@@ -97,8 +97,12 @@ Ctrl+C 后端口释放、无残留子进程。
 | `SHA256SUMS.txt` | `sha256sum` 兼容格式 `<64 hex>  <文件名>`（两个空格分隔）；**UTF-8 无 BOM + 仅 LF**，可在 Linux/macOS 上直接 `sha256sum -c` |
 | `omopredict-<version>.json` | 机器可读清单：`product` / `version` / `commit` / `generated` / 每个产物的 `sha256`、`size` |
 
-- 只收 `-InputDir` 的**直接子文件**（排除 `*.json` 与 `SHA256SUMS.txt`）：`release/` 里通常还有
-  `win-unpacked/` 这类解包目录，绝不能进清单。确有清单外文件用 `-Include <路径>` 显式加。
+- 只收 `-InputDir` 的**直接子文件**，且扩展名必须在 `-Extensions`（可发布件白名单：
+  `.zip/.exe/.msi/.dmg/.pkg/.AppImage/.deb/.rpm/.tar.gz`）。这样 electron-builder 的记账文件
+  （`builder-debug.yml`、`builder-effective-config.yaml`、`*.blockmap`）不会混进清单，
+  将来出现新的垃圾文件也不会像黑名单那样"悄悄漏进来"。
+- 清单外的产物用 `-Include <路径或通配符>` 显式加入（release 里轻量 zip 在另一个目录，就是这么带进来的）；
+  `-Verify` 要传**同样的 `-Include`** 才能找到它们。
 - 版本取 `desktop/package.json`（拿不到再退到 `engine/pyproject.toml`），也可 `-Version` 覆盖。
 - `-Verify` 逐条比对：缺文件或哈希不符都算失败（退出 1），**篡改必然被发现**（已实测）。
 - 发布 job 在打清单前会先校验 `tag`（去掉 `v`）与 `desktop/package.json` 的 `version` 一致，
@@ -174,11 +178,20 @@ Ctrl+C 后端口释放、无残留子进程。
      且不需要 pnpm / Go / Electron；
   6. 往返验证 `release-manifest.ps1`：生成 → `-Verify` 必须通过 → 篡改一个字节 → `-Verify` 必须失败。
      没人跑过的门禁等于没有门禁。
-- `release` job **只由 `v*` tag 触发**（`if: startsWith(github.ref, 'refs/tags/v')`）：
+- `release` job **只由 `v*` tag 触发**（`if: startsWith(github.ref, 'refs/tags/v')`），**跑在 `windows-latest`**：
   1. tag 与 `desktop/package.json` 的 `version` 不一致就直接失败；
-  2. 真打轻量包（渲染产物是真的在本 runner 上构建的；只有 Electron 壳目录是桩，因为 electron-builder 需要 Windows 目标）；
-  3. 生成 SHA256 清单，**并在发布前用清单校验自己刚产出的产物**；
-  4. 用 `gh release create` 建 Release，附上 zip、`SHA256SUMS.txt` 与 JSON 清单；
-  5. 在 run summary 里写明：**完整包**（`build-desktop.ps1`，依赖 electron-builder）仍需在本地 Windows 上
-     构建并手工附到同一个 Release，附完要重新生成清单以覆盖它的哈希。
+  2. `build-desktop.ps1` 真打**完整包**（electron-builder 的 nsis/zip 要 Windows 目标；PyInstaller 不能交叉编译）；
+  3. `build-lite.ps1` 用**刚打出的真实壳**（`desktop/release/win-unpacked`，用 `-ShellDir` 显式指定）
+     再出轻量包；
+  4. 生成 SHA256 清单（轻量 zip 用 `-Include` 带进来），**并在发布前用清单校验自己**；
+  5. `gh release create` 上传完整包 + 轻量包 + 清单。
+
+> ⚠️ **这个 job 必须在 Windows 上跑**：脚本里的 `go build` 不设 GOOS（产物是宿主机格式），
+> 而"桩壳 + Linux 二进制"打出来的 `-win-x64.zip` 在任何机器上都跑不起来（HANDOVER §6.41）。
+> macOS / Linux 发布不在当前范围：`desktop/package.json` 只配了 `win` 目标，且 mac 需要签名与公证；
+> 真要做应当是**每个平台各自一个原生 job**（引擎 sidecar 无法跨平台复用）。
+> **教训**：桩壳只能验证脚本语法与体积门禁，**验证不了目录结构是否可运行**。
+> 轻量包曾经因此把壳整个塞进 `win-unpacked/` 子目录（zip 里出现两个 `resources/`），
+> 现在 `build-lite.ps1` 有**结构断言**（`OMOPredict.exe` 必须在包根、`resources/{dist,engine,omopredict-server.exe}` 必须齐）。
+
 

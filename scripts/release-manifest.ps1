@@ -8,8 +8,17 @@ human reproducing a release locally runs exactly the code that produced the publ
 Usage
   powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1
   powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1 -InputDir desktop\release -OutDir dist\release
+  powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1 -InputDir desktop\release -OutDir dist\release -Include "desktop\release\lite\*.zip"
   powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1 -Verify
-  powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1 -Verify -Checksums <path>
+  powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1 -Verify -Checksums <path> -Include "desktop\release\lite\*.zip"
+
+Selection
+  Only direct children of -InputDir whose extension is in -Extensions (a shippable allowlist:
+  .zip/.exe/.msi/.dmg/.pkg/.AppImage/.deb/.rpm/.tar.gz) are hashed. That keeps electron-builder
+  bookkeeping (builder-debug.yml, builder-effective-config.yaml, *.blockmap) out of the manifest,
+  and a new kind of junk cannot slip in the way it would with a deny-list.
+  -Include adds files from elsewhere (wildcards allowed), which is how the lightweight zip - built
+  into a different directory - gets covered. Pass the same -Include to -Verify.
 
 Outputs (in -OutDir)
   SHA256SUMS.txt                sha256sum-compatible: "<64 hex>  <file name>"
@@ -29,8 +38,11 @@ param(
     [string] $Checksums = '',
     [string] $Product = 'OMOPredict',
     [switch] $Verify,
-    # Extra files to include even when they sit outside -InputDir (e.g. a source tarball).
-    [string[]] $Include = @()
+    # Extra files to include even when they sit outside -InputDir (wildcards allowed).
+    [string[]] $Include = @(),
+    # Which extensions count as shippable artifacts (things a user downloads and runs).
+    # An allowlist, so electron-builder's bookkeeping files cannot leak into the manifest.
+    [string[]] $Extensions = @('.zip', '.exe', '.msi', '.dmg', '.pkg', '.AppImage', '.deb', '.rpm', '.tar.gz')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -77,19 +89,28 @@ function Get-Commit {
 
 # Artifacts are direct children only: a release directory may also hold unpacked trees
 # (e.g. win-unpacked/) that must never be hashed into the manifest.
+#
+# Selection is an ALLOWLIST of shipping extensions rather than a deny-list of known junk: a
+# release directory also collects electron-builder bookkeeping (builder-debug.yml,
+# builder-effective-config.yaml, ...) which must not end up in the manifest, and new junk would
+# silently slip through a deny-list. -Include adds files from outside $Dir explicitly.
 function Get-Artifacts {
-    param([string] $Dir, [string[]] $Extra)
+    param([string] $Dir, [string[]] $Extra, [string[]] $Extensions)
+    $allowed = @($Extensions | ForEach-Object { $_.ToLowerInvariant() })
     $files = @(Get-ChildItem -LiteralPath $Dir -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -ne 'SHA256SUMS.txt' -and $_.Extension -ne '.json' })
+        Where-Object { $allowed -contains $_.Extension.ToLowerInvariant() })
     foreach ($item in $Extra) {
-        if (Test-Path -LiteralPath $item) {
-            $resolved = (Resolve-Path -LiteralPath $item).Path
-            if (-not ($files | Where-Object { $_.FullName -eq $resolved })) {
-                $files += Get-Item -LiteralPath $resolved
-            }
+        # -Include may contain wildcards (electron-builder's output names are not fully predictable)
+        $hits = @(Get-Item -Path $item -ErrorAction SilentlyContinue)
+        if ($hits.Count -eq 0) {
+            Write-Warning ("-Include matched nothing, skipped: {0}" -f $item)
+            continue
         }
-        else {
-            Write-Warning ("-Include path not found, skipped: {0}" -f $item)
+        foreach ($hit in $hits) {
+            if ($hit.PSIsContainer) { continue }
+            if (-not ($files | Where-Object { $_.FullName -eq $hit.FullName })) {
+                $files += $hit
+            }
         }
     }
     return $files
@@ -103,6 +124,20 @@ if ($Verify) {
         exit 1
     }
     Write-Host ("[manifest] verifying against {0}" -f $Checksums)
+    # Build a name -> path lookup: -InputDir first, then anything matched by -Include. Without
+    # this, a manifest that covers files from both places could never be verified back, which is
+    # exactly the shape the release job produces (full package + lightweight zip).
+    $lookup = @{}
+    Get-ChildItem -LiteralPath $InputDir -File -ErrorAction SilentlyContinue | ForEach-Object {
+        $lookup[$_.Name] = $_.FullName
+    }
+    foreach ($item in $Include) {
+        foreach ($hit in @(Get-Item -Path $item -ErrorAction SilentlyContinue)) {
+            if (-not $hit.PSIsContainer -and -not $lookup.ContainsKey($hit.Name)) {
+                $lookup[$hit.Name] = $hit.FullName
+            }
+        }
+    }
     $checked = 0
     $bad = 0
     foreach ($line in Get-Content -LiteralPath $Checksums -Encoding UTF8) {
@@ -116,8 +151,8 @@ if ($Verify) {
         }
         $expected = $parts[0].ToLower()
         $name = $parts[1].Trim()
-        $target = Join-Path $InputDir $name
-        if (-not (Test-Path -LiteralPath $target)) {
+        $target = $lookup[$name]
+        if ($null -eq $target -or -not (Test-Path -LiteralPath $target)) {
             Write-Host ("  MISSING  " + $name)
             $bad++
             continue
@@ -144,7 +179,7 @@ if ($Verify) {
 }
 
 # ---- generate mode ----------------------------------------------------------
-$artifacts = @(Get-Artifacts -Dir $InputDir -Extra $Include)
+$artifacts = @(Get-Artifacts -Dir $InputDir -Extra $Include -Extensions $Extensions)
 if ($artifacts.Count -eq 0) {
     Write-Host ("[manifest] no artifacts found in {0}" -f $InputDir)
     Write-Host '[manifest] expected a .zip / .exe / .tar.gz produced by the packaging scripts'

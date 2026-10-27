@@ -310,16 +310,24 @@ OMOPredict/
 ```
 
 - ✅ **`[6] release` has landed (T9)**: the CI `release` job (`if: startsWith(github.ref, 'refs/tags/v')`)
-  first checks that the **tag (minus the leading `v`) matches `desktop/package.json`'s version** (otherwise a
-  package labelled vX would ship containing Y), then genuinely builds the lightweight package →
-  `release-manifest.ps1` writes `SHA256SUMS.txt` + a JSON manifest → **verifies the manifest against its own
-  artefacts before publishing** → `gh release create` uploads them. The manifest format is compatible with
-  `sha256sum -c` (UTF-8 without BOM, LF only).
-  - ⚠️ **The full package is not built in CI**: electron-builder needs the Windows target and the Electron
-    binary, which an ubuntu runner cannot provide. The full package is therefore built on a **local Windows
-    machine** with `scripts\build-desktop.ps1` and attached to the same release by hand, after which the
-    manifest must be **regenerated** so its hash is covered; the release job writes this into the run summary
-    so it cannot be forgotten.
+  **runs on `windows-latest`** and first checks that the **tag (minus the leading `v`) matches
+  `desktop/package.json`'s version** (otherwise a package labelled vX would ship containing Y), then:
+  1. installs frontend/desktop dependencies and fills in the Electron binary;
+  2. runs `build-desktop.ps1` to genuinely build the **full package** (renderer → Go → PyInstaller sidecar →
+     shell TS → electron-builder → three size gates);
+  3. runs `build-lite.ps1` against the **real shell it just produced** (`desktop/release/win-unpacked`) to
+     produce the lightweight package;
+  4. writes `SHA256SUMS.txt` + the JSON manifest with `release-manifest.ps1` (the lightweight zip is pulled in
+     with `-Include`) and **verifies the manifest against its own artefacts before publishing**;
+  5. uploads everything with `gh release create`.
+  The manifest format is compatible with `sha256sum -c` (UTF-8 without BOM, LF only).
+  - ⚠️ **It has to be a Windows runner**: the scripts' `go build` does not set GOOS (so the binary is the
+    host's format), electron-builder's Windows targets need Windows, and PyInstaller **cannot
+    cross-compile**. An earlier version packed a "stand-in shell plus a Linux binary" into a `-win-x64.zip`
+    on ubuntu, and that artefact could not run anywhere (HANDOVER §6.41).
+  - **macOS / Linux releases are out of scope for now**: `desktop/package.json` only configures the `win`
+    target, and macOS would need signing and notarisation credentials. Doing it properly means **one native
+    job per platform** (the engine sidecar cannot be reused across platforms), to be designed separately.
 
 - Caches: pnpm store, Go build cache, uv cache, Electron binaries (`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`).
 - **Size gates**: full package ≤300MB, **engine directory ≤250MB** (was 90MB, relaxed in 2026-09 according to measurements), **lightweight package ≤150MB**

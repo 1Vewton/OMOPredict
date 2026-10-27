@@ -307,13 +307,23 @@ OMOPredict/
 [6] release  : tag 触发；上传产物 + SHA256 清单
 ```
 
-- ✅ **`[6] release` 已落地（T9）**：CI 的 `release` job（`if: startsWith(github.ref, 'refs/tags/v')`）先校验
-  **tag（去掉 `v`）与 `desktop/package.json` 的 version 一致**（否则发出去的包会"标着 vX 装着 Y"），
-  再真打轻量包 → `release-manifest.ps1` 生成 `SHA256SUMS.txt` + JSON 清单 → **发布前用清单校验自己** →
-  `gh release create` 上传。清单格式与 `sha256sum -c` 兼容（UTF-8 无 BOM、仅 LF）。
-  - ⚠️ **完整包不在 CI 里打**：electron-builder 需要 Windows 目标与 Electron 二进制，ubuntu runner 上做不到。
-    因此完整包由**本机 Windows** 用 `scripts\build-desktop.ps1` 构建后手工附到同一个 Release，
-    附完要**重新生成清单**以覆盖它的哈希；release job 会把这段写进 run summary 以免漏做。
+- ✅ **`[6] release` 已落地（T9）**：CI 的 `release` job（`if: startsWith(github.ref, 'refs/tags/v')`）
+  **跑在 `windows-latest`**，先校验 **tag（去掉 `v`）与 `desktop/package.json` 的 version 一致**
+  （否则发出去的包会"标着 vX 装着 Y"），然后：
+  1. 装前端/桌面依赖 + 补齐 Electron 二进制；
+  2. `build-desktop.ps1` 真打**完整包**（渲染 → Go → PyInstaller sidecar → 壳 TS → electron-builder → 三道门禁）；
+  3. `build-lite.ps1` 用**刚打出的真实壳**（`desktop/release/win-unpacked`）再出轻量包；
+  4. `release-manifest.ps1` 生成 `SHA256SUMS.txt` + JSON 清单（轻量 zip 用 `-Include` 带进来），
+     并**发布前用清单校验自己**；
+  5. `gh release create` 上传全部产物。
+  清单格式与 `sha256sum -c` 兼容（UTF-8 无 BOM、仅 LF）。
+  - ⚠️ **必须是 Windows runner**：脚本里的 `go build` 不设 GOOS（产物是宿主机格式），而
+    `electron-builder` 的 Windows 目标与 PyInstaller（**不支持交叉编译**）都要求目标平台。
+    早期版本在 ubuntu 上把"桩壳 + Linux 二进制"打成 `-win-x64.zip`，产物根本跑不起来（HANDOVER §6.41）。
+  - **macOS / Linux 发布不在当前范围内**：`desktop/package.json` 只配了 `win` 目标，且 macOS 需要
+    签名与公证凭据。真要做，正确形态是**每个平台各自一个原生 job**（引擎 sidecar 无法跨平台复用），
+    按 T10–T11 的排期另行设计。
+
 
 - 缓存：pnpm store、Go build cache、uv cache、Electron 二进制（`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`）。
 - **体积门禁**：完整包 ≤300MB、**引擎目录 ≤250MB**（原 90MB，2026-09 按实测放宽）、**轻量包 ≤150MB**

@@ -384,6 +384,30 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
     `& powershell -NoProfile -ExecutionPolicy Bypass -File scripts\xxx.ps1`。
     §7 常用命令里保留 `pwsh`/`powershell` 的通用写法是因为 **CI 与其它机器上 `pwsh` 是有的**
     （CI 用 `shell: pwsh`），本机复现时按上面替换即可。
+41. **⚠️ 轻量包的 release job 曾会产出不可运行的包（2026-10 修，三个叠加的坑）**：
+    这一段值得完整读一遍，因为三个问题互相掩护，任何一个单独看都不明显。
+    - **坑 1：在 ubuntu 上打 Windows 包。** `build-lite.ps1` / `build-desktop.ps1` 里的
+      `go build` **不设 GOOS**，产物是宿主机格式；ubuntu runner 上得到的是 Linux ELF，却被
+      改名成 `omopredict-server.exe`、塞进名字带 `-win-x64` 的 zip。壳还只是"桩"
+      （`OMOPredict.exe` 内容是一行文本）。→ 整个 release job 改到 **`windows-latest`** 上真打。
+      注意 PyInstaller **不支持交叉编译**，引擎 sidecar 只能在目标平台打，所以"跨平台发布"的
+      正确形态是每个平台各自原生构建，不是加一个 job 就够。
+    - **坑 2：`-OutDir` 一挪，`-ShellDir` 的默认推导就落空。** `-ShellDir` 默认是
+      `<OutDir>/win-unpacked`；为了不把 staging 塞进 electron-builder 的输出目录，release 里把
+      `-OutDir` 改成 `desktop/release/lite`，于是壳被找在 `.../lite/win-unpacked`（不存在），
+      产物退化成"没有壳的 staging"。→ `build-lite.ps1` 现在显式校验 staging 与 shell 不重叠，
+      找不到壳时还会说明"这个路径是从 -OutDir 推出来的"，release job 也显式传两个参数。
+    - **坑 3（最隐蔽）：`Copy-Item -Recurse` 复制的是目录本身。**
+      `Copy-Item $ShellDir -Destination $staging -Recurse` 生成 `staging/win-unpacked/OMOPredict.exe`，
+      于是 zip 顶层多了一层 `win-unpacked/`、并出现**两个 `resources/`**（壳的与载荷的），
+      真实载荷落到 `resources/` 而壳的资源在 `win-unpacked/resources/` —— 装上去打不开。
+      → 改为把**子项**逐个拷进 staging，并新增**结构断言**（`OMOPredict.exe` 必须在包根，
+      且 `resources/{dist,engine,omopredict-server.exe}` 必须齐）；断言在
+      `-AllowMissingShell` 的桩壳路径上同样生效，所以 CI 也能拦住。
+      顺带给 `build-desktop.ps1` 加了同样的硬检查：**没打出引擎 sidecar 时直接 throw**
+      （原来只 `Write-Warning`，会安静地发一个"没有引擎"的完整包）。
+    **教训**：桩壳（stand-in）只能验证脚本语法与体积门禁，**验证不了目录结构是否可运行**；
+    这次的三个坑全部出自"用桩代替真产物"。能跑真产物时，一定要跑一次真产物。
 
 
 ## 7. 未完成事项与后续计划
