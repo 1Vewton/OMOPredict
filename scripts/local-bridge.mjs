@@ -53,8 +53,8 @@ const USAGE = `OMOPredict local debug bridge (HTTP -> Go --stdio -> engine)
 Usage: node scripts/local-bridge.mjs --backend <omopredict(.exe)> --dist <frontend/dist> [options]
 
 Options:
-  --backend <path>    Go backend executable (required)
-  --dist <dir>        renderer dist directory (required)
+  --backend <path>    Go backend executable (required; or env OMO_BACKEND_EXE)
+  --dist <dir>        renderer dist directory (required; or env OMO_DIST_DIR)
   --port <n>          HTTP port (default 8787; 0 = pick a free one and print it)
   --host <addr>       bind address (default 127.0.0.1; this is a debug tool)
   --data-dir <dir>    where the SQLite file lives (required; SQLite will not create it)
@@ -64,6 +64,10 @@ Options:
   --timeout <ms>      per-RPC timeout (default 120000)
   --open              open a browser once listening
   -h, --help          this text
+
+Values that may contain spaces or quotes (paths, the engine command) can also be supplied via the
+environment - OMO_BACKEND_EXE, OMO_DIST_DIR, OMO_ENGINE_CMD - which is how start-local.ps1 passes
+them: Start-Process re-parses its argument list and eats the inner quotes of such a value.
 `
 
 function fail(message) {
@@ -94,15 +98,25 @@ if (args.help || args.h) {
   process.exit(0)
 }
 
-const backend = typeof args.backend === 'string' ? resolve(args.backend) : ''
-const distDir = typeof args.dist === 'string' ? resolve(args.dist) : ''
+// Values that may contain spaces or quotes (paths, the engine command) can be supplied through
+// the environment instead of argv: Start-Process re-parses its -ArgumentList string, which eats
+// the inner quotes of such a value. The flags below still win, so both ways remain usable.
+const fromEnv = (key) => {
+  const value = process.env[key]
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : ''
+}
+
+const backendArg = typeof args.backend === 'string' ? args.backend : fromEnv('OMO_BACKEND_EXE')
+const distArg = typeof args.dist === 'string' ? args.dist : fromEnv('OMO_DIST_DIR')
+const backend = backendArg === '' ? '' : resolve(backendArg)
+const distDir = distArg === '' ? '' : resolve(distArg)
 const dataDir = typeof args['data-dir'] === 'string' ? resolve(args['data-dir']) : ''
 const host = typeof args.host === 'string' ? args.host : '127.0.0.1'
 const port = args.port === undefined ? 8787 : Number(args.port)
 const timeoutMs = args.timeout === undefined ? undefined : Number(args.timeout)
 const backendCwd = typeof args.cwd === 'string' ? resolve(args.cwd) : REPO_ROOT
 
-if (backend === '') fail('missing --backend (see --help)')
+if (backend === '') fail('missing --backend (or OMO_BACKEND_EXE; see --help)')
 if (distDir === '') fail('missing --dist (see --help)')
 if (dataDir === '') fail('missing --data-dir (see --help)')
 if (!existsSync(backend)) fail(`backend executable not found: ${backend}`)
@@ -133,12 +147,17 @@ const childEnv = {
 
 const explicitEngineCmd = typeof args['engine-cmd'] === 'string' ? args['engine-cmd'] : ''
 const pythonExe = typeof args.python === 'string' ? args.python : ''
+const inheritedEngineCmd = fromEnv('OMO_ENGINE_CMD')
 if (explicitEngineCmd !== '') {
   childEnv.OMO_ENGINE_CMD = explicitEngineCmd
 } else if (pythonExe !== '') {
   // Quoted: the Go resolver splits on whitespace and honours double quotes, so a Python living
   // under "C:\Program Files\..." stays one argument.
   childEnv.OMO_ENGINE_CMD = `"${resolve(pythonExe)}" -m omo.rpc`
+} else if (inheritedEngineCmd !== '') {
+  // Keep the caller's value (start-local passes it this way to dodge argv re-quoting);
+  // childEnv already inherited it, this just makes the intent explicit.
+  childEnv.OMO_ENGINE_CMD = inheritedEngineCmd
 }
 
 process.stderr.write(`[bridge] backend : ${backend} --stdio\n`)

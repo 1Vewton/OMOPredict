@@ -14,10 +14,19 @@ Usage
   powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1
   powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -Port 9000 -Open
   powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -SkipFrontendBuild -SkipGoBuild
+  powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -QuitAfterReady   # readiness gate
+
+Running unattended
+  In an interactive terminal it serves until Ctrl+C. When stdin is redirected (CI, a pipe, a
+  scheduler) there is nobody to press Ctrl+C, so readiness itself becomes the success signal:
+  it verifies /health, shuts the tree down and exits 0. Pass -KeepRunning to serve anyway, or
+  -QuitAfterReady to force the gate in a terminal. That is also the smoke test for this script.
 
 Exit codes
-  0 = served and shut down cleanly (or stopped with Ctrl+C)
-  1 = setup/startup failure (missing engine, port taken, renderer not built, ...)
+  0 = served and shut down cleanly (Ctrl+C), OR the readiness gate passed (-QuitAfterReady /
+      redirected stdin)
+  1 = setup/startup failure or the readiness gate failed (missing engine, port taken,
+      renderer not built, bridge died, /health never answered)
 
 NOTE: comments in this file are ASCII on purpose (docs/HANDOVER.md 6.19).
 #>
@@ -31,7 +40,12 @@ param(
     [switch] $SkipFrontendBuild,
     [switch] $SkipGoBuild,
     [switch] $Open,
-    [int] $ReadyTimeoutSec = 120
+    [int] $ReadyTimeoutSec = 120,
+    # Readiness-gate mode for CI/smoke: bring everything up, verify /health, shut down, exit 0/1.
+    # Implied automatically when stdin is redirected (see "Running unattended" in the header).
+    [switch] $QuitAfterReady,
+    # Force the "keep serving" behaviour even with redirected stdin.
+    [switch] $KeepRunning
 )
 
 $ErrorActionPreference = 'Stop'
@@ -210,16 +224,26 @@ if (-not (Test-Path -LiteralPath $DataDir)) { Fail "could not create data direct
 $DataDir = (Resolve-Path -LiteralPath $DataDir).Path
 Write-Host ("      data: {0}" -f $DataDir)
 
+# Paths and the engine command are handed over through ENVIRONMENT VARIABLES, not argv.
+#
+# Why: Start-Process re-parses its -ArgumentList string, so a value that itself contains quotes
+# (an engine command like '"C:\...\python.exe" -m omo.rpc', or a path with spaces) gets split and
+# its inner quotes are consumed. That silently turned the engine command into a bare interpreter
+# path, which then failed with "ping response timeout" 60s later - a very confusing symptom.
+# Environment variables are passed through untouched, and Go already reads OMO_ENGINE_CMD, so
+# this is also the same variable the shell and rpc-cli use.
+$env:OMO_ENGINE_CMD = if ($EngineCmd -ne '') { $EngineCmd } else { '"{0}" -m omo.rpc' -f (Resolve-Path -LiteralPath $enginePath).Path }
+$savedBackendOverride = $env:OMO_BACKEND_EXE
+$savedDistOverride = $env:OMO_DIST_DIR
+$env:OMO_BACKEND_EXE = $backendPath
+$env:OMO_DIST_DIR = $distDir
+
 $bridgeArgs = @(
     $bridgeJs,
-    '--backend', $backendPath,
-    '--dist', $distDir,
     '--data-dir', $DataDir,
     '--port', "$Port",
     '--cwd', $repoRoot
 )
-if ($EngineCmd -ne '') { $bridgeArgs += @('--engine-cmd', $EngineCmd) }
-else { $bridgeArgs += @('--python', $enginePath) }
 
 $logFile = Join-Path $DataDir 'bridge.log'
 # Start-Process refuses identical stdout/stderr targets, so keep two files and tail both.
@@ -231,6 +255,63 @@ $nodeExe = (Get-Command node).Source
 $child = Start-Process -FilePath $nodeExe -PassThru `
     -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog `
     -ArgumentList $bridgeArgs
+
+# Drop the hand-off variables again: the child inherited them, and leaving them set would make a
+# later run (or another tool in this session) pick up a stale engine command or paths.
+Remove-Item Env:\OMO_BACKEND_EXE -ErrorAction SilentlyContinue
+Remove-Item Env:\OMO_DIST_DIR -ErrorAction SilentlyContinue
+Remove-Item Env:\OMO_ENGINE_CMD -ErrorAction SilentlyContinue
+if ($null -ne $savedBackendOverride) { $env:OMO_BACKEND_EXE = $savedBackendOverride }
+if ($null -ne $savedDistOverride) { $env:OMO_DIST_DIR = $savedDistOverride }
+
+# End-to-end readiness: GET /health only proves the Go backend answers - Go replies to `ping`
+# ITSELF, and the engine is spawned lazily on the first real task. So a broken engine still passes
+# a /health check (docs/HANDOVER.md section 7: Go spawns the engine lazily, so failures only show
+# up once a task actually runs).
+# To prove the whole chain, submit one tiny simulate task and wait for it to finish.
+function Test-EngineRoundTrip {
+    param([string] $BaseUrl, [int] $TimeoutSec = 120)
+    $payload = @{
+        kind   = 'simulate'
+        name   = 'start-local readiness probe'
+        layers = @(
+            @{ material = 'ITO'; thickness_nm = 40 },
+            @{ material = 'Ag'; thickness_nm = 10 },
+            @{ material = 'ITO'; thickness_nm = 40 }
+        )
+    } | ConvertTo-Json -Depth 5 -Compress
+
+    try {
+        $created = Invoke-RestMethod -Uri ($BaseUrl + 'api/tasks') -Method Post `
+            -ContentType 'application/json' -Body $payload -TimeoutSec 10
+    }
+    catch {
+        return @{ ok = $false; reason = "could not create a task: $($_.Exception.Message)" }
+    }
+
+    $taskId = $created.id
+    if (-not $taskId) { return @{ ok = $false; reason = 'task creation returned no id' } }
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 400
+        try {
+            $task = Invoke-RestMethod -Uri ($BaseUrl + "api/tasks/$taskId") -TimeoutSec 10
+        }
+        catch {
+            return @{ ok = $false; reason = "could not poll the task: $($_.Exception.Message)" }
+        }
+        if ($task.status -eq 'succeeded') {
+            $rs = $task.result.sheet_resistance
+            return @{ ok = $true; reason = ("engine answered (Rs={0} ohm/sq)" -f $rs) }
+        }
+        if ($task.status -eq 'failed') {
+            # The backend surfaces the engine failure here, which is the actionable message.
+            return @{ ok = $false; reason = 'the engine failed: ' + $task.error }
+        }
+    }
+    return @{ ok = $false; reason = "the task did not finish within $TimeoutSec s" }
+}
 
 $url = "http://127.0.0.1:$Port/"
 $stopped = $false
@@ -271,26 +352,72 @@ try {
         Start-Process $url | Out-Null
     }
 
-    while ($true) {
-        if ($null -ne $child -and $child.HasExited) {
-            Write-Host ''
-            Write-Host ("[start-local] the bridge exited (code " + $child.ExitCode + "). Log tail:") -ForegroundColor Red
-            Show-LogTail -Path $stderrLog -Lines 25
-            exit 1
+    # Decide whether to keep serving after readiness.
+    #
+    # Interactive terminal -> serve until Ctrl+C (the documented behaviour).
+    # Redirected stdin     -> do NOT spin forever: an unattended caller (CI, a pipe, a scheduler)
+    #                         has no way to press Ctrl+C, so before this change the script hung
+    #                         until the job timed out. Readiness itself becomes the success signal.
+    # Both can be overridden explicitly, so the decision is never silent.
+    $nonInteractive = [Console]::IsInputRedirected
+    $keepServing = $KeepRunning.IsPresent -or -not ($QuitAfterReady.IsPresent -or $nonInteractive)
+
+    if ($keepServing) {
+        if ($nonInteractive) {
+            Write-Host '[start-local] stdin is redirected but -KeepRunning was given: serving until killed.' -ForegroundColor Yellow
         }
-        if ([Console]::IsInputRedirected) { Start-Sleep -Seconds 1 } else { Start-Sleep -Milliseconds 500 }
+        while ($true) {
+            $child.Refresh()
+            if ($child.HasExited) {
+                Write-Host ''
+                Write-Host ("[start-local] the bridge exited (code " + $child.ExitCode + "). Log tail:") -ForegroundColor Red
+                Show-LogTail -Path $stderrLog -Lines 25
+                exit 1
+            }
+            Start-Sleep -Milliseconds 500
+        }
     }
-}
-finally {
-    if (-not $stopped -and $null -ne $child -and -not $child.HasExited) {
+
+    # Readiness gate. /health alone is NOT enough (see Test-EngineRoundTrip): prove the engine
+    # actually answers by running one tiny simulation before reporting success.
+    $why = if ($QuitAfterReady.IsPresent) { '-QuitAfterReady' } else { 'stdin redirected' }
+    Write-Host ("[start-local] readiness gate ({0}): checking the engine, not just the backend..." -f $why)
+    $probe = Test-EngineRoundTrip -BaseUrl $url -TimeoutSec $ReadyTimeoutSec
+    if (-not $probe.ok) {
         Write-Host ''
-        Write-Host '[start-local] stopping the bridge and the backend...'
-        # /T kills the whole tree (node -> Go -> engine); plain Kill() would orphan them.
-        if ($env:OS -eq 'Windows_NT') {
-            & taskkill /PID $child.Id /T /F 2>&1 | Out-Null
-        }
-        else {
-            try { $child.Kill() } catch { }
+        Write-Host ('[start-local] readiness gate FAILED: ' + $probe.reason) -ForegroundColor Red
+        Show-LogTail -Path $stderrLog -Lines 40
+        Fail 'the engine is not usable, so this stack would look ready but fail every task' @(
+            'check the interpreter / command passed to -Python / -EngineCmd',
+            'run "cd engine; uv sync --all-extras" if the engine dependencies are missing',
+            'the engine error above is the exact message the backend reported'
+        )
+    }
+
+    Write-Host ''
+    Write-Host ("=== readiness gate passed ({0}) ===" -f $why) -ForegroundColor Green
+    Write-Host ('  ' + $probe.reason)
+    Write-Host '  shutting the stack down and exiting 0 (that is also the smoke test for this script)'
+    Write-Host ''
+    # Leave via the finally block so the bridge/backend tree is reclaimed exactly like Ctrl+C.
+    exit 0
+}
+finally {    if (-not $stopped -and $null -ne $child) {
+        $child.Refresh()
+        if (-not $child.HasExited) {
+            Write-Host ''
+            Write-Host '[start-local] stopping the bridge and the backend...'
+            # Force-kill the tree is the only reliable stop here: this script does not redirect the
+            # child's stdin, so there is no pipe we could close to make the bridge exit on EOF
+            # (its graceful path is stdin EOF or SIGINT). Nothing of value is lost - the bridge
+            # writes its log synchronously to a file, so the log stays complete.
+            # /T kills the whole tree (node -> Go -> engine); plain Kill() would orphan them.
+            if ($env:OS -eq 'Windows_NT') {
+                & taskkill /PID $child.Id /T /F 2>&1 | Out-Null
+            }
+            else {
+                try { $child.Kill() } catch { }
+            }
         }
         $stopped = $true
     }

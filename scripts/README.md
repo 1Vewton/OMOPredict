@@ -11,7 +11,7 @@
 | `build-lite.ps1` | T8 | 组装轻量包：渲染产物 + Go 后端 + **引擎源码** + setup 脚本 + README → 体积门禁 → zip |
 | `build-desktop.ps1` | T9 | 完整包：渲染产物 + Go 后端 + **PyInstaller 引擎 sidecar** + 壳 TS（main ESM / preload CJS）→ electron-builder → 体积门禁 |
 | `rpc-cli.ps1` | T9 | 手工调试：向 stdio 端点发一行/多行 JSON-RPC，把 stderr 日志与响应分开打印 |
-| `start-local.ps1` | T9 | **无壳本地调试**：拉起 `local-bridge.mjs`（HTTP ↔ Go `--stdio` ↔ 引擎），托管渲染产物并打印/打开浏览器地址 |
+| `start-local.ps1` | T9 | **无壳本地调试**：拉起 `local-bridge.mjs`（HTTP ↔ Go `--stdio` ↔ 引擎），托管渲染产物并打印/打开浏览器地址；`-QuitAfterReady` 可当冒烟测试（起栈→真跑一次任务验证引擎→收栈） |
 | `release-manifest.ps1` | T9 | 发布清单：给产物生成 `SHA256SUMS.txt` + JSON 清单；`-Verify` 反查校验（篡改必失败） |
 | `smoke-desktop.ps1` | T11 | **一键判定壳能不能跑**：构建齐（渲染/后端/壳 TS）→ 启动 Electron → 渲染成功退出 **0**、失败退出 **1** 并打印原因；开头会自检是不是跑在 harness 里 |
 | `diagnose-electron.ps1` | T11 | Electron 启动诊断：打印"我在哪跑"（`ELECTRON_RUN_AS_NODE`/DSH 变量/父进程）+ 最小 Electron 程序的启动矩阵，用来区分"在沙箱内"与"机器本身起不来" |
@@ -54,6 +54,11 @@ powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -Port 9000 -Ope
 powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -SkipFrontendBuild -SkipGoBuild
 powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -EngineCmd '"C:\Python312\python.exe" -m omo.rpc'
 
+# 把它当冒烟测试：起栈 → 真跑一次最小任务验证引擎 → 收栈退出（0/1）
+powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -QuitAfterReady
+# stdin 被重定向时（CI / 管道 / 计划任务）**自动**走这个就绪门模式，不会挂住；
+# 若要强制保持服务（即使在重定向下）加 -KeepRunning。
+
 # 发布清单（tag 发的版本；也可本地手工给完整包补清单）
 powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1
 powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1 -InputDir desktop\release -OutDir dist\release
@@ -84,9 +89,26 @@ stdio 子进程。安全，但浏览器也就无从连起。`local-bridge.mjs` �
 `T@550nm = 0.974497`、`SE@10GHz = 33.7036`（与 REST/引擎契约一致）、SPA 深链回退、删除任务均正常；
 Ctrl+C 后端口释放、无残留子进程。
 
-> ⚠️ 桥会在**自己的环境里**设 `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` 再拉起 Go：引擎是孙进程，
-> 只能从这里把编码传下去。否则 Windows 上 Python 按 ANSI 代码页写 stderr，引擎的 UTF-8 日志落进
-> 日志文件就是乱码，而紧挨着的 Go 日志却正常（HANDOVER §6.37）。
+### 退出与就绪门（`-QuitAfterReady` / `-KeepRunning`）
+
+| 场景 | 行为 |
+|---|---|
+| 交互终端 | 服务到 Ctrl+C（原行为） |
+| stdin 被重定向（CI / 管道 / 计划任务） | **以就绪为成功信号**：校验通过即退出 0，不再无限等待 |
+| `-QuitAfterReady` | 强制就绪门（在终端里也能用） |
+| `-KeepRunning` | 强制保持服务（即使 stdin 被重定向） |
+
+退出码：就绪门通过 0；启动失败或就绪门失败 1（并打印引擎真实错误 + "What to check"）。
+
+> ⚠️ **就绪门不只查 `/health`**：`/health` 对应 RPC `ping`，是 **Go 自己**应答的，而引擎是
+> **惰性拉起**的——引擎完全坏掉时 `/health` 照样 200。所以就绪门会**真跑一次最小任务**
+> （ITO/Ag/ITO 40-10-40 的 simulate），轮询到 `succeeded` 才算通过（HANDOVER §6.43）。
+> 实测：正常 3.8 s 退出 0 并打印 `engine answered (Rs=3.9708…)`；引擎路径写错时 3.6 s 退出 1，
+> 报出 `fork/exec C:\nope\python.exe: The system cannot find the path specified`。
+
+> ⚠️ 桥会在**自己的环境里**设 `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` 再拉起 Go（权威设定其实在
+> Go 拉起引擎处，这里是防御性重复），否则引擎的 UTF-8 日志落进日志文件就是乱码，
+> 而紧挨着的 Go 日志却正常（HANDOVER §6.37）。
 
 ## `release-manifest.ps1`（发布清单）
 

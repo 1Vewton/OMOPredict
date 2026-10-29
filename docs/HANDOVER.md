@@ -408,6 +408,35 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
       （原来只 `Write-Warning`，会安静地发一个"没有引擎"的完整包）。
     **教训**：桩壳（stand-in）只能验证脚本语法与体积门禁，**验证不了目录结构是否可运行**；
     这次的三个坑全部出自"用桩代替真产物"。能跑真产物时，一定要跑一次真产物。
+42. **⚠️ `Start-Process -ArgumentList` 会重新解析参数串，吃掉值里的引号（2026-10 实测）**：
+    `start-local.ps1` 曾用 `-ArgumentList @(..., '--engine-cmd', $EngineCmd)` 把
+    `'"C:\...\python.exe" -m omo.rpc'` 传给桥。`Start-Process` 会把数组拼成**一个命令行字符串**
+    让子进程重新分词，于是内层引号被消耗，桥只收到解释器路径、`-m omo.rpc` 丢失。
+    症状极具误导性：任务不是立刻失败，而是 **60 秒后**报
+    `engine: 启动后 ping 失败: engine: ping 响应超时（1m0s）` —— 看起来像"引擎太慢/挂了"。
+    **更坑的是我自己的验证方式**：用 `Get-Content` 读桥日志确认 `engine : ... -m omo.rpc`，
+    那只是把日志**回显**出来，引号看着在，实际没传进去。
+    → 结论：**可能含空格/引号的值一律走环境变量**，别塞进 `-ArgumentList`。
+    现在 `start-local.ps1` 用 `OMO_ENGINE_CMD` / `OMO_BACKEND_EXE` / `OMO_DIST_DIR` 传给桥
+    （桥新增这两个路径变量的回退，CLI 参数仍优先），子进程启动后立刻清掉变量以免污染后续运行。
+    `rpc-cli.ps1` 早就是这种做法（用 .NET `ProcessStartInfo` 直接设环境）。
+43. **⚠️ `/health` 不能证明引擎可用（2026-10 实测）**：为修 P2 加的"就绪门"最初只查
+    `GET /health`，结果**引擎完全跑不起来时它照样报成功**。原因：`/health` 对应 RPC `ping`，
+    是 **Go 自己**应答的；引擎**惰性拉起**，失败只在第一次真正跑任务时暴露
+    （即 §7 T8 记的"Go 对引擎是惰性拉起，失败出现在跑任务时"）。
+    → 就绪门必须**跑一次最小任务**：`-QuitAfterReady` 提交 ITO/Ag/ITO 40-10-40 的 simulate，
+    轮询到 `succeeded`，并把引擎错误原样打出来（实测得到
+    `fork/exec C:\nope\python.exe: The system cannot find the path specified`）。
+    **一般性教训**：健康检查要覆盖"用户真正会用的那条路径"，否则它只证明进程活着。
+44. **⚠️ 脚本在非交互环境下不能靠 Ctrl+C 退出（2026-10，P2）**：`start-local.ps1` 原来主循环是
+    `while ($true)`，输入被重定向（CI / 管道 / 计划任务）时只会"睡得更久"，**永不退出**，
+    调用方只能干等到超时。→ 现在：交互终端照旧服务到 Ctrl+C；**stdin 被重定向时以就绪为成功信号**
+    （校验引擎 → 退出 0）；另加 `-QuitAfterReady` 显式强制、`-KeepRunning` 强制保持服务。
+    这也让它能当**冒烟测试**用（实测：正常 3.8s 退出 0；引擎路径写错 3.6s 退出 1 并给可操作提示；
+    `-KeepRunning` 下仍能正常建任务，Rs=3.9708）。
+    顺带确认：**`exit` 写在 try 里仍会执行 finally**，所以退出码不会绕过进程树回收；
+    而"优雅关闭"在本脚本里不可行——它没有重定向子进程 stdin，拿不到可关闭的管道
+    （`$child.StandardInput` 为 null），只能 `taskkill /T /F`；日志是同步写文件的，不会因此丢内容。
 
 
 ## 7. 未完成事项与后续计划

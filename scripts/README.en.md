@@ -56,6 +56,11 @@ powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -Port 9000 -Ope
 powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -SkipFrontendBuild -SkipGoBuild
 powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -EngineCmd '"C:\Python312\python.exe" -m omo.rpc'
 
+# Use it as a smoke test: bring the stack up, run one tiny task to prove the engine, tear down (0/1)
+powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1 -QuitAfterReady
+# With stdin redirected (CI / a pipe / a scheduler) it takes that readiness-gate path automatically
+# instead of hanging; add -KeepRunning to serve anyway.
+
 # Release manifest (for a tagged version; also used to add the full package locally)
 powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1
 powershell -ExecutionPolicy Bypass -File scripts\release-manifest.ps1 -InputDir desktop\release -OutDir dist\release
@@ -89,10 +94,29 @@ Measured locally: `/health`, `/api/meta` (`auth_mode: none`), creating a `simula
 `Rs = 3.970819 Ω/sq`, `T@550nm = 0.974497`, `SE@10GHz = 33.7036` (matching the REST/engine contract),
 SPA deep links and task deletion all behave; after Ctrl+C the port is free and no child process is left.
 
+### Exit behaviour and the readiness gate (`-QuitAfterReady` / `-KeepRunning`)
+
+| Situation | Behaviour |
+|---|---|
+| Interactive terminal | serves until Ctrl+C (as before) |
+| stdin redirected (CI / pipe / scheduler) | **readiness is the success signal**: exits 0 once verified instead of waiting forever |
+| `-QuitAfterReady` | forces the readiness gate (works in a terminal too) |
+| `-KeepRunning` | forces serving even with redirected stdin |
+
+Exit codes: readiness gate passed = 0; startup or gate failure = 1 (printing the engine's real error
+plus a "What to check" block).
+
+> ⚠️ **The gate does not merely check `/health`**: `/health` maps to RPC `ping`, which **Go answers
+> itself**, and the engine is spawned lazily - so `/health` returns 200 even when the engine is
+> completely broken. The gate therefore **runs one tiny task** (a 40/10/40 nm ITO/Ag/ITO `simulate`)
+> and only passes once it reaches `succeeded` (HANDOVER §6.43). Measured: 3.8 s to exit 0 printing
+> `engine answered (Rs=3.9708...)`, and 3.6 s to exit 1 with a wrong interpreter, reporting
+> `fork/exec C:\nope\python.exe: The system cannot find the path specified`.
+
 > ⚠️ The bridge sets `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` in **its own** environment before
-> spawning Go: the engine is a grandchild, so this is the only place the encoding can be set. Without it
-> Python on Windows writes stderr using the ANSI code page, so the engine's UTF-8 log lines land in the
-> log file as mojibake while the Go lines right next to them look fine (HANDOVER §6.37).
+> spawning Go (the authoritative setting is actually where Go spawns the engine; this is defence in
+> depth). Without it Python on Windows writes stderr using the ANSI code page, so the engine's UTF-8
+> log lines land in the log file as mojibake while the Go lines next to them look fine (HANDOVER §6.37).
 
 ## `release-manifest.ps1` (release manifest)
 
