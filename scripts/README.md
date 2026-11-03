@@ -9,7 +9,7 @@
 |---|---|---|
 | `setup-engine.ps1` | T8 | 轻量包用户在**自己机器上**准备引擎：`uv sync --frozen`，否则 `python -m pip install -e engine`；随后发一次 `ping` 确认引擎可用 |
 | `build-lite.ps1` | T8 | 组装轻量包：渲染产物 + Go 后端 + **引擎源码** + setup 脚本 + README → 体积门禁 → zip |
-| `build-desktop.ps1` | T9 | 完整包：渲染产物 + Go 后端 + **PyInstaller 引擎 sidecar** + 壳 TS（main ESM / preload CJS）→ electron-builder → 体积门禁 |
+| `build-desktop.ps1` | T9 | 完整包：渲染产物 + Go 后端 + **PyInstaller 引擎 sidecar** + 壳 TS（main ESM / preload CJS）→ electron-builder（**`zip` 必需 / `nsis` best-effort**）→ 体积门禁 |
 | `rpc-cli.ps1` | T9 | 手工调试：向 stdio 端点发一行/多行 JSON-RPC，把 stderr 日志与响应分开打印 |
 | `start-local.ps1` | T9 | **无壳本地调试**：拉起 `local-bridge.mjs`（HTTP ↔ Go `--stdio` ↔ 引擎），托管渲染产物并打印/打开浏览器地址；`-QuitAfterReady` 可当冒烟测试（起栈→真跑一次任务验证引擎→收栈） |
 | `release-manifest.ps1` | T9 | 发布清单：给产物生成 `SHA256SUMS.txt` + JSON 清单；`-Verify` 反查校验（篡改必失败） |

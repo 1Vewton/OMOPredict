@@ -444,8 +444,8 @@ OMOPredict/
 | T7 Electron 壳 | ✅ 完成（**未做运行期启动验证**，见下） | `src/main.ts`（主进程接线：单实例锁 + 聚焦已有窗口、`app://` 协议、菜单、IPC、优雅退出回收后端）、`src/preload.ts`（contextBridge 白名单，仅暴露 `rpc`/`openLogDir`/`openDataDir`）、`src/shell/`（与 Electron 解耦的壳逻辑：`appProtocol` app:// 解析 + 目录穿越防护 + CSP/安全头、`channels` IPC 通道与**结果信封**（避免 Electron 压掉 Error 的 `code`）、`preloadBridge`、`menu`、`windowOptions` 安全基线、`backendCommand` 打包/开发期定位、`diagnostics` 脱敏诊断）、`package.json` 的 electron-builder 配置（nsis + zip，extraResources：`dist/` + `omopredict-server.exe`） | `tsc --noEmit` **对真实 Electron 类型**干净（校验了 app/BrowserWindow/protocol/Menu/ipcMain 的全部用法）；**150 单测**（12 文件；含 app:// 目录穿越 5 种编码变体、CSP 无网络、IPC 信封跨进程边界、菜单/窗口安全基线、诊断脱敏）；集成测试新增**渲染进程可见链路**（`window.omo.rpc` → IPC 信封 → 真实 Go → 真实引擎，含 404 跨界） |
 | T8 轻量包 | ✅ 完成 | `scripts/setup-engine.ps1`（uv → pip 两条安装路径 + 发 ping 验证；失败一律给可操作指引）、`scripts/build-lite.ps1`（渲染产物 + Go 后端 + **引擎源码** + setup 脚本 + README → **三道体积门禁** → zip；`-AllowMissingShell` 支持无壳时只做暂存）、`desktop/lite/README.txt` 模板、`scripts/README.md` | 两个脚本**已实跑**：setup-engine 的成功/失败/自动发现/uv 四条路径、build-lite 的暂存（退出 2）/完整出包（退出 0）/两道门禁分别拦截（退出 1）；`desktop/` 集成测试新增**引擎不可用**用例（真实 Go 后端 + 不存在的解释器 → 任务落 `failed`，错误为 `engine: 启动 [...]: fork/exec ... cannot find the path specified`）；CI 新增 `packaging` job。体积门禁经 2026-09 决定放宽为 payload 50MB + 整包 150MB（见 §7） |
 | T9 契约一致性 + 脚本 + CI | ✅ 完成 | ✅ 已落地：后端 `internal/rpc/contract_test.go`（HTTP↔RPC 逐字段）、前端 vitest（5 文件 60 用例，含**两传输载荷一致性**）、桌面 vitest（193 用例 + 3 个门控集成用例）、**`rpc-cli.ps1`**（stdio 调试客户端，已实跑 ping/`tasks.list`/未知方法 `-32601`/直连引擎/坏 JSON 本地校验）、**`build-desktop.ps1`**（完整包：渲染 + Go + **PyInstaller sidecar** + 壳 TS（main ESM / preload CJS）→ electron-builder → 三道门禁；已实跑至 `-SkipPackaging`，并用打出的 sidecar 跑通数值一致性）、**体积门禁**（两脚本 + CI 反向验证"门禁真的会拦"）、**`start-local.ps1` + `local-bridge.mjs`**（HTTP↔stdio 调试桥：浏览器里跑无端口全链路；桥核心 33 单测）、**`release-manifest.ps1`**（SHA256SUMS.txt + JSON 清单，`-Verify` 可反查、篡改必失败）、**CI `release` job**（`v*` tag 触发：版本一致性守卫 → 真打轻量包 → 清单 → 自校验 → `gh release create`）。⏳ 唯一没做的是**完整包进 Release**（要 electron-builder 的 Windows 目标，交回本机，见 §7 release job 说明） |
-| T10 文档 | ⏳ | 待做（T1/T3 的契约已先行写入 `docs/api/rest.md` 与 `docs/api/rpc.md`；T4.5 的 stdio 变体见 `docs/api/engine.md`） |
-| T11 净机验收 | ⏳ | 待做（**壳的运行期启动/渲染已于 2026-10 实测通过，见 HANDOVER §6.35**；剩下 electron-builder 实跑与另一台干净机器） |
+| T10 文档 | 🔶 进行中 | `desktop/README.md`、根 README 桌面章节、HANDOVER 产物/坑/模式、`docs/api/rpc.md` **均已更新到 T9 状态**；本轮补入 electron-builder 实测结论与依赖缺陷（HANDOVER §6.45），仍需在本轮收尾时统一校对 |
+| T11 净机验收 | 🔶 部分完成 | **可自动验证的部分已实测**：electron-builder 首次实跑（zip 成功、NSIS 受交互桌面限制）、完整包体积门禁、清单生成/校验、打包产物结构与引擎 sidecar 均通过；**GUI 项（§10 第 1/2/5/6/7 条）在本机无法验证**——打包后的 app 以 `0x80000003`/`0xC0000005` 原生崩溃，与本会话内 Chromium 沙箱起不来是同一机器级原因（§6.31）。**必须在一台普通桌面 Windows 上补测**，见 §10 的清单 |
 
 > ✅ **T4.5 验证（2026-09，实测）**：新增 12 个 Go 测试（假引擎子进程走真实管道：仿真/反推往返、`code=422` 透传、
 > 超时、进程中途退出、Close 幂等、启动失败、D9 四级解析、命令行引号切分、乱序响应按 id 关联、
@@ -532,6 +532,24 @@ OMOPredict/
 >   桥核心 33 单测）与 `release-manifest.ps1`（生成 → 校验通过 → 篡改一字节必失败 → 空/缺目录退出 1），
 >   外加 §7 描述的 CI `release` job。
 > - ⚠️ **仍未做**：electron-builder 本身（需 Electron 二进制）、以及因此尚未把完整包发进 Release、净机验收（T11）。
+>
+> ✅ **T11 部分验证（2026-11，实测，可自动化的部分）**：electron-builder **首次真正跑起来**
+> （此前从未成功，直接原因是它压根没被声明为依赖，见 HANDOVER §6.45）：
+> - `build-desktop.ps1` 六步全过，**退出 0**；
+> - `desktop/release/win-unpacked/` 布局正确：`OMOPredict.exe`（234.6 MB，自带 Electron 运行时）
+>   + `resources/{app.asar, omopredict-server.exe (26.4 MB), engine/omo-rpc.exe (10.3 MB), dist/}`；
+> - 产物 **`OMOPredict-0.1.0-win.zip` = 220.94 MB**（≤300 MB 门禁通过）；
+> - 体积门禁三项均通过：engine dir **165.64 MB** / app payload **27.1 MB** / distributable **220.94 MB**；
+> - `release-manifest.ps1` 对真实产物生成清单并**自校验通过**。
+> - ⚠️ **NSIS 安装包在本会话内无法完成**：NSIS 的构建方式是"先编出安装器、再**执行**它来生成卸载器"
+>   （`app-builder-lib`: `WineVm.exec(installerPath, [])`），而本机/沙箱无交互桌面，执行即失败
+>   （`process failed 2`）。已把 **zip 设为必需、nsis 设为 best-effort**（失败只告警不中断），
+>   并**删除失败留下的 0.18 MB 半成品**、拒绝给它过体积门禁——避免把残缺安装包当成可发布产物。
+> - ⚠️ **GUI 验收项（§10 第 1/2/5/6/7 条）本机无法验证**：启动打包后的 `OMOPredict.exe` 得到
+>   **`0x80000003`**（未设 `ELECTRON_DISABLE_SANDBOX`）与 **`0xC0000005`**（设置后），
+>   与本会话内 Electron/Chromium 进程沙箱起不来是**同一机器级原因**（HANDOVER §6.31）。
+>   因此"窗口 ≤5s 出现 / 无登录页 / 断网可用 / 运行期无监听端口 / 退出无残留"这几项**仍属未验证**，
+>   必须在普通桌面 Windows 上按 §10 补测。
 
 ---
 

@@ -437,6 +437,38 @@ task 包内与引擎相关的三个文件：`engine.go`（`Engine` 接口 + HTTP
     顺带确认：**`exit` 写在 try 里仍会执行 finally**，所以退出码不会绕过进程树回收；
     而"优雅关闭"在本脚本里不可行——它没有重定向子进程 stdin，拿不到可关闭的管道
     （`$child.StandardInput` 为 null），只能 `taskkill /T /F`；日志是同步写文件的，不会因此丢内容。
+45. **⚠️ `electron-builder` 一直没被声明为依赖 —— 这就是"打包从未实跑"的真正原因（2026-11 实测）**：
+    跑 `build-desktop.ps1` 时第 5 步直接失败。根因有**两层**：
+    - **表层**：`desktop/package.json` 的 `devDependencies` 里**根本没有 `electron-builder`**，
+      也不在 `pnpm-lock.yaml` 里；而脚本却调用 `pnpm exec electron-builder`。所以它不可能跑通过
+      （T8/T9 一直用 `-SkipPackaging`，正好绕开了这一步）。
+      → 已 `pnpm add -D electron-builder`（26.18.0）。
+    - **深层（上游缺陷）**：装上后仍在"下载 Electron 制品"处崩：
+      `⨯ Cannot read properties of undefined (reading 'ReadWrite')`，位置
+      `app-builder-lib/out/util/electronGet.js:76`。`ReadWrite` 不是 `fs.constants`，
+      而是 **`@electron/get` 的 `ElectronDownloadCacheMode` 枚举**。**该枚举只在 `@electron/get@3.1.0`
+      起才有，3.0.0 的导出里没有**；而 `app-builder-lib@26.18.0` 声明的是 `^3.0.0`，
+      锁文件按最低满足版解析到 **3.0.0** → 必定崩溃。这是 electron-builder 自 26.x 的依赖声明缺陷，
+      **与机器无关**（换一台机器同样会中）。
+      → 在 `desktop/pnpm-workspace.yaml` 加 `overrides: {'@electron/get': 3.1.0}` 钉死。
+      实测：3.0.0 的导出是 `getHostArch, initializeProxy, downloadArtifact, download`；
+      3.1.0 多出 `GotDownloader, ElectronDownloadCacheMode`。
+    - **pnpm 的连带坑**：`allowBuilds` 里若留 pnpm 自动写入的占位符
+      （`electron-winstaller: set this to true or false`），`pnpm install` 会以**退出码 1**结束，
+      进而让**每次 `pnpm exec` 都先跑一遍 depsCheck 并失败**（报 `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`，
+      极具误导性）。本项目只打 nsis+zip，不需要 Squirrel，故显式写 `electron-winstaller: false`。
+    - **NSIS 目标需要交互桌面**：NSIS 的构建流程是"编出安装器 → **执行它**以生成卸载器"
+      （`WineVm.exec(installerPath, [])`）。无交互桌面时执行失败（`process failed 2`），
+      并**留下一个 0.18 MB 的半成品 exe**（真实载荷在 `.nsis.7z` 里）。
+      → `build-desktop.ps1` 现在把 **zip 设为必需、nsis 设为 best-effort**（失败只告警），
+      并把"小于 1 MB 的 `.exe`"当作残渣**删除且不参与体积门禁**——否则残缺安装包会被门禁盖章。
+    - 实测成果（2026-11）：`build-desktop.ps1` **退出 0**；`win-unpacked` 布局正确
+      （`OMOPredict.exe` 234.6 MB + `resources/{app.asar, omopredict-server.exe 26.4 MB, engine/omo-rpc.exe 10.3 MB, dist/}`）；
+      `OMOPredict-0.1.0-win.zip` **220.94 MB**；三项门禁全过（engine 165.64 / payload 27.1 / distributable 220.94）。
+    - ⚠️ **GUI 项仍无法在本机验证**：启动打包后的 `OMOPredict.exe` 得到 `0x80000003`
+      （未设 `ELECTRON_DISABLE_SANDBOX`）与 `0xC0000005`（设置后）——与 §6.31 的机器级
+      Chromium 沙箱问题同源。§10 的"窗口 5s 内出现 / 无登录页 / 断网可用 / 运行期无端口 / 退出无残留"
+      仍需在普通桌面 Windows 上补测。
 
 
 ## 7. 未完成事项与后续计划

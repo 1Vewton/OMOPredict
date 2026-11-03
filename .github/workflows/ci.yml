@@ -274,6 +274,75 @@ jobs:
           if ($output -notmatch '\-32601') { throw "expected error code -32601:`n$output" }
           exit 0
 
+  # 桌面打包的**输入**必须每天都被验证（T11 教训）。
+  #
+  # 为什么单独一个 Windows job：完整包的打包步骤一直没在 CI 里跑过，结果
+  # `electron-builder` 连依赖都没声明、装上了又因上游版本缺陷直接崩 ——
+  # 这些问题在本地用 -SkipPackaging 时全被绕开，直到真正发版才暴露（HANDOVER §6.45）。
+  #
+  # 这里跑 -SkipPackaging：渲染 → Go → PyInstaller sidecar → 壳 TS → 体积门禁，
+  # 正是 release job 在 electron-builder 之前要做的全部事情。刻意**不跑** electron-builder，
+  # 因为它要下载 ~100MB Electron 并执行安装器（无交互桌面会失败），放在 tag 触发的 release job
+  # 里跑一次即可；本 job 的成本控制在可接受的几分钟内。
+  desktop-package:
+    name: Desktop package inputs (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "engine/uv.lock"
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      # --frozen-lockfile 同时验证：electron-builder 确实在依赖里、@electron/get 的 override
+      # 已进锁文件（两者缺一都会在这里失败，而不是等到发版）。
+      - name: Install desktop deps (lockfile must be complete)
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: electron-builder must be resolvable
+        working-directory: desktop
+        run: pnpm exec electron-builder --version
+
+      - name: PyInstaller engine sidecar must contain no optional deps
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1 -SkipPackaging
+          if ($LASTEXITCODE -ne 2) { throw "expected -SkipPackaging to exit 2 (staging only), got $LASTEXITCODE" }
+          $leaks = @()
+          foreach ($name in @('torch', 'fastapi', 'uvicorn', 'matplotlib')) {
+            $hit = Get-ChildItem -Path desktop/release-bin -Recurse -Filter "*$name*" -ErrorAction SilentlyContinue
+            if ($hit) { $leaks += $name }
+          }
+          if ($leaks.Count -gt 0) { throw ("engine sidecar leaks optional deps: " + ($leaks -join ', ')) }
+          Write-Host 'engine sidecar is clean (no torch/fastapi/uvicorn/matplotlib)'
+          Get-ChildItem -Path desktop/release-bin/omo-rpc -Filter 'omo-rpc.exe' -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("sidecar: {0}" -f $_.FullName) }
+
   # 发布 job（T9）：tag 触发，**在 Windows 上真打完整包**，连同轻量包与 SHA256 清单一起挂到 Release。
   #
   # 为什么必须是 windows-latest 而不是 ubuntu：

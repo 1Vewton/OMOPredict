@@ -183,8 +183,27 @@ if ($SkipPackaging) {
 else {
     Push-Location $desktopDir
     try {
-        & pnpm exec electron-builder --win nsis zip
-        if ($LASTEXITCODE -ne 0) { throw "electron-builder failed (exit $LASTEXITCODE)" }
+        # Two targets, deliberately split by reliability:
+        #   zip - produces the portable package; proven to work headless.
+        #   nsis - produces the installer, but NSIS works by BUILDING an installer and then
+        #          EXECUTING it to emit the uninstaller (app-builder-lib: WineVm.exec(installer, [])).
+        #          Launching an installer needs an interactive desktop; in a sandbox/CI shell it
+        #          fails with "process failed 2" and would otherwise abort the whole build.
+        # So: zip is required, nsis is best-effort and reported honestly.
+        & pnpm exec electron-builder --win zip
+        if ($LASTEXITCODE -ne 0) { throw "electron-builder (zip) failed (exit $LASTEXITCODE)" }
+
+        & pnpm exec electron-builder --win nsis
+        if ($LASTEXITCODE -ne 0) {
+            # Build the message first: `Write-Warning "..." + "..."` is parsed as TWO arguments
+            # (unlike Write-Host), which fails with "A positional parameter cannot be found".
+            $nsisCode = $LASTEXITCODE
+            $nsisNote = ("electron-builder (nsis) failed (exit {0}). The zip was produced fine. " -f $nsisCode) +
+                'NSIS works by building an installer and then EXECUTING it to emit the uninstaller, ' +
+                'which needs an interactive desktop; in a sandbox/CI shell it exits 2. Build the ' +
+                'installer in a normal desktop session (same inputs, already verified here), or use the zip.'
+            Write-Warning $nsisNote
+        }
     }
     finally { Pop-Location }
 }
@@ -205,11 +224,31 @@ if ($SkipPackaging) {
 }
 
 # Gate what actually ships, not the unpacked tree.
-$artifacts = @(Get-ChildItem -LiteralPath $OutDir -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Extension -in @('.zip', '.exe') })
+#
+# A FAILED NSIS run still leaves a truncated "OMOPredict Setup <v>.exe" (the real payload lives in
+# the .nsis.7z, so the stub is only ~0.2 MB). Shipping that, or passing a size gate with it, would
+# be worse than not shipping an installer. Anything implausibly small is treated as debris: it is
+# removed, not gated, so a partial build can never masquerade as a distributable.
+$minInstallerMB = 1
+$artifacts = @()
+$strays = @()
+foreach ($candidate in @(Get-ChildItem -LiteralPath $OutDir -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Extension -in @('.zip', '.exe') })) {
+    $sizeMB = [math]::Round($candidate.Length / 1MB, 2)
+    if ($candidate.Extension -eq '.exe' -and $sizeMB -lt $minInstallerMB) {
+        $strays += $candidate
+    }
+    else {
+        $artifacts += $candidate
+    }
+}
+foreach ($stray in $strays) {
+    Write-Warning ("removing incomplete distributable: {0} ({1} MB) - a real installer is much larger" -f $stray.Name, [math]::Round($stray.Length / 1MB, 2))
+    Remove-Item -LiteralPath $stray.FullName -Force -ErrorAction SilentlyContinue
+}
 if ($artifacts.Count -eq 0) {
-    Write-Warning "no distributable found in $OutDir; nothing to gate"
-    exit 0
+    throw "no usable distributable in $OutDir (only incomplete files were found). " +
+          'Re-run without -SkipPackaging on a machine that can run the NSIS step.'
 }
 foreach ($artifact in $artifacts) {
     Assert-SizeGate -Label ("distributable " + $artifact.Name) -ActualMB ([math]::Round($artifact.Length / 1MB, 2)) -LimitMB $DistributableLimitMB
